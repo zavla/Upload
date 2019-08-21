@@ -49,8 +49,8 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 		{"empty log file",
 			args{log1}, // here goes io.Reader to read from
 			FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 0}},
-			true,
-			errPartialFileEmpty},
+			false,
+			nil},
 	}
 	// next transform towrite structs to dcase structs
 	for k, v := range datainfiles {
@@ -114,8 +114,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
 				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
-				wantErr:      false,
-				errkind:      nil, // file ended unexpectedly? use last success record
+				wantErr:      true,
+				errkind:      errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
 			rec: tobytes(PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),

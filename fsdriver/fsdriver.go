@@ -199,18 +199,21 @@ func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, info PartialFileInf
 // ReadCurrentStateFromPartialFile reads header of type StartStruct.
 // Then reads PartialFileInfo structs from log file.
 // Validate log file and returns last correct log record.
-// TODO: return on offset in log file where it is corrupted
+// TODO: return an offset in log file where it is corrupted
 func ReadCurrentStateFromPartialFile(wp io.Reader) (retState FileState, errInLog error) {
 
 	var startstruct StartStruct
-	errInLog = nil
-	retState = *NewFileState(0, 0)
 
+	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
+	errInLog = nil
+
+	retState = *NewFileState(0, 0)
+	// reads start bytes in file
 	err := binary.Read(wp, binary.LittleEndian, &startstruct)
 	if err != nil {
 		if err == io.EOF {
-			// empty file. No startstruct in header. Start filling a new one.
-			return retState, errPartialFileEmpty
+			// empty file. No startstruct in header. No error.
+			return retState, nil
 		}
 		return retState, errPartialFileVersionTagReadError
 	}
@@ -223,39 +226,44 @@ func ReadCurrentStateFromPartialFile(wp io.Reader) (retState FileState, errInLog
 		prevrecored := PartialFileInfo{Action: successwriting,
 			Startoffset: 0,
 			Count:       startstruct.TotalExpectedFileLength} // previous log record
-		lastsuccessrecord := PartialFileInfo{} // should not be pointer                                                                           //address of empty record
-		for {
-			err := binary.Read(wp, binary.LittleEndian, &currrecored)
 
-			// DEBUG!!!
+		lastsuccessrecord := PartialFileInfo{} // should not be a pointer
+		for {                                  // reading records one by one
+			err := binary.Read(wp, binary.LittleEndian, &currrecored)
+			// next lines are dealing with errors while reading
 			if err == io.EOF { // we reach end of file
 				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), nil
 			} else if err == io.ErrUnexpectedEOF { // read ended unexpectedly
-				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), nil
-			} else if err != nil { // read faild, use lastsuccessrecord
-				//returns previous good record
-				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileReadingError // unrecoverable error
-			}
-			//+
-			if currrecored.Startoffset == prevrecored.Startoffset &&
-				currrecored.Action == successwriting &&
-				prevrecored.Action == startedwriting {
-				// lastsuccessrecord only changes here
-				lastsuccessrecord = currrecored // current record is a pair. Move pointer farward.
-			} else if currrecored.Startoffset >= prevrecored.Startoffset {
-				if currrecored.Action == startedwriting && prevrecored.Action == successwriting {
-					// skip this recored. it is a "start to write" record. Wait for its "pair" record.
-				} else {
-					// corrupted partial file
-					return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileCorrupted
-				}
-
-			} else {
-				// corrupted partial file. Previous offset is bigger then current.
 				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileCorrupted
+			} else if err != nil { // read failed, use lastsuccessrecord
+				//returns previous good record
+				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileReadingError
 			}
-			prevrecored = currrecored // makes previous record a current one
 
+			// next lines are dealing with offsets in current record
+			switch {
+			case currrecored.Startoffset > retfilestate.FileSize:
+				// current record do not corresond to expected file size
+				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileCorrupted
+			case currrecored.Startoffset == prevrecored.Startoffset &&
+				currrecored.Action == successwriting &&
+				prevrecored.Action == startedwriting:
+
+				// current record found a pair. move to next record.
+				lastsuccessrecord = currrecored // current record is a pair. Move pointer farward.
+
+			case currrecored.Startoffset >= prevrecored.Startoffset &&
+				currrecored.Action == startedwriting &&
+				prevrecored.Action == successwriting:
+				// so far so good. this is a step to next record.
+				// skip this recored. it is a "start to write" record. Wait for its "pair" record.
+
+			default:
+				// current record is bad.
+				return *retfilestate.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count), errPartialFileCorrupted
+			} // end switch
+			prevrecored = currrecored // makes previous record a current one
+			// continue to next record
 		}
 	} else {
 		// incorrect header
@@ -280,20 +288,23 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		return *NewFileState(0, 0), errForbidenToUpdateAFile
 	}
 
-	// next reads log file
+	// reads log(journal) file
 	wp, err := OpenRead(dir, namepart)
 	if err != nil { // != nil means no log file, means actual file already uploaded.
-
+		// no info about actual file fullness
 		return *NewFileState(wastat.Size(), wastat.Size()), errForbidenToUpdateAFile
 	}
 	defer wp.Close()
-	// log file exists
+	// log(journal) file exists
 	fromLog, errlog := ReadCurrentStateFromPartialFile(wp)
 	if errlog != nil {
-		// log has file length and minimum correct offset, thougth may have further errors
+		// log(journal) file needs repair
+		// fromLog has correct "actual" file length and last correct offset == fromLog.Startoffset
+		// TODO(zavla): do a repair of journal
 		if fromLog.FileSize != 0 && // log has something
 			fromLog.Startoffset != 0 && // log has some offset
 			fromLog.Startoffset <= wastat.Size() { // log has offset that may be trusted, it's <= then actual filesize
+
 			if fromLog.Startoffset < wastat.Size() {
 				return *NewFileState(fromLog.FileSize, fromLog.Startoffset), nil // you may continue
 			}

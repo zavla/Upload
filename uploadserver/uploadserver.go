@@ -33,6 +33,7 @@ var (
 	errServerFailToWriteAllbytes     = *errstr.NewError("uploadserver", 16, "Server failed to write all the bytes.")
 	errClientRequestShouldBindToJson = *errstr.NewError("uploadserver", 17, "Client request should bind to json.")
 	errSessionEnded                  = *errstr.NewError("uploadserver", 18, "Session has ended.")
+	errWrongFuncParameters           = *errstr.NewError("uploadserver", 19, "Wrong func parameters.")
 )
 
 type stateOfFileUpload struct {
@@ -163,9 +164,15 @@ func RecieveAndWriteAndWait(c_Request_Body io.ReadCloser,
 	constdirforfiles, name string,
 	whatIsInFile fsdriver.PartialFileInfo) (error, writeresult) {
 
-	//var whatIsInFile fsdriver.PartialFileInfo // should be validated before!
-
 	expectedcount := whatIsInFile.Count
+	if expectedcount < 0 { // should never happen, why we expect more than filesize
+		// check input params
+		currerr := errWrongFuncParameters.SetDetails("parameter 'whatIsInFile.Count' == %d", expectedcount)
+		return currerr, writeresult{
+			count: 0,
+			err:   currerr,
+		}
+	}
 	// Starts goroutine in background for write operations for this connection.
 	go WriteChanneltoDisk(chReciever, chWriteResult, constdirforfiles, name, whatIsInFile)
 	// Reciever is in current thread, sends bytes to chReciever.
@@ -178,7 +185,7 @@ func RecieveAndWriteAndWait(c_Request_Body io.ReadCloser,
 		return nil, writeresult // SUCCESS, all bytes written
 	} else {
 		// server failed to write all the bytes
-		// reciever faid to recieve all the bytes
+		// reciever failed to recieve all the bytes
 		return errRecieve, writeresult
 	}
 
@@ -276,8 +283,19 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			name,
 			fsdriver.PartialFileInfo{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
 		if errreciver != nil || writeresult.err != nil {
-			// server failed to write all the bytes, OR reciver failed to recieve all the bytes
-			c.JSON(http.StatusExpectationFailed, gin.H{"error": errServerFailToWriteAllbytes.SetDetails("Server has written %d bytes, expected number of bytes %d", writeresult.count, fromClient.Count)})
+			// server failed to write all the bytes,
+			// OR reciver failed to recieve all the bytes
+			// TODO(zavla): MayUpload may return offset 68500 while filesize is 65010 !
+			whatIsInFile, err := fsdriver.MayUpload(expectfromclient.path, name)
+			if err != nil {
+				c.Error(err)
+
+				c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+				return
+
+			}
+			// this will trigger another request from client
+			c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile))
 			return
 		}
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
