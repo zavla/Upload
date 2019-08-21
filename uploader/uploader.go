@@ -15,9 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -29,13 +31,14 @@ var (
 	errCantConnectToServer        = *errstr.NewError("uploader", 6, "Can't connect to http server")
 	errFileSeekErrorOffset        = *errstr.NewError("uploader", 7, "File seek offset error.")
 	errServerDidNotAdmitUpload    = *errstr.NewError("uploader", 8, "Server did not admit upload. We can't be sure of successfull upload.")
+	errNumberOfRetriesExceeded    = *errstr.NewError("uploader", 9, "Number of retries exceeded.")
 )
 
 // jar holds cookies and used by http.Client to get cookies from Response and to set cookies into Request
 var jar cookiejar.Jar
 
-//const bindAddress = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
-const bindAddress = `http://127.0.0.1:64000/upload`
+//const uploadServerURL = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
+const uploadServerURL = `http://127.0.0.1:64000/upload`
 
 // eoe = "exit on error"
 // args are pairs of key,value. Even number of args expected.
@@ -73,87 +76,121 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar) error {
 		return errCantGetFileProperties.SetDetails("filename=%s", fullfilename)
 	}
 
-	// fills http request params
-
-	req, err := http.NewRequest("POST", bindAddress, f) // reads body from f, f will be close after http.Client.Do
+	// creates http.Request
+	req, err := http.NewRequest("POST", uploadServerURL, f) // reads body from f, f will be close after http.Client.Do
 	if err != nil {
 		return errCantCreateHttpRequest
 	}
 	// use context to define timeout of total http.Request
-	//ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	//req = req.WithContext(ctx)
+	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// req = req.WithContext(ctx)
 
 	req.ContentLength = stat.Size()          // file size
-	req.Header.Add("Expect", "100-continue") // client will not send body at once, will wait for server 100-continue
+	req.Header.Add("Expect", "100-continue") // client will not send body at once, it will wait for server response status "100-continue"
 
 	query := req.URL.Query()
 	query.Add("filename", name) // url parameter &filename
 	req.URL.RawQuery = query.Encode()
 
-	// use transport
+	// use transport to define timeouts: idle and expect timeout
 	tr := &http.Transport{
-		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle
+
+		ResponseHeaderTimeout: 20 * time.Second, // wait for headers for how long
+		TLSHandshakeTimeout:   20 * time.Second, // time to negotiate for TLS
+		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
 		ExpectContinueTimeout: 20 * time.Second, // expects response status 100-continue befor sending body
 	}
+
+	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
-		Timeout:   5 * time.Minute, // we connected to ip port but server didnot respond within Timeout
+		Timeout:   5 * time.Minute, // we connected to ip port but didn't manage to read the whole respone (headers and body) within Timeout
 		Transport: tr,
 		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
 	}
-	var ret error
-	for i := 0; i < 5; i++ {
-		// makes the first request, without cookie or makes a retry request with sessionID in cookie
-		resp, err := cli.Do(req) // sends a file f in the body,  closes f
-		if err != nil {
-			log.Printf("Can't connect to server: %s", err)
-			ret = errCantConnectToServer.SetDetails("Address=%s", req.URL)
+
+	waitBeforRetrySec := time.Duration(30)
+
+	ret := errNumberOfRetriesExceeded // func return value
+	// cycle for some errors that can be tolarated
+	for i := 0; i < 3; i++ {
+
+		req.Body = f
+		// makes the first request, without cookie or makes a retry request with sessionID in cookie on steps 2,3...
+		resp, err := cli.Do(req)       // sends a file f in the body,  closes file f
+		if err != nil || resp == nil { // response may be nil when transport fails with timeout (timeout while i am debugging the upload server)
+			ret = *errCantConnectToServer.SetDetailsSubErr(err, "uploadServerURL=%s", req.URL)
+			log.Printf("Can't connect to server: %s", ret)
+			time.Sleep(waitBeforRetrySec * time.Second) // waits
+
+			// opens file again
+			f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
+			if err != nil {
+				ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "Can't open the file: %s", fullfilename)
+				log.Printf("%s", ret)
+				return ret
+			}
+
+			continue // retries
 		}
 		log.Printf("Connected to: %s", req.URL)
-		if resp == nil {
-			log.Printf("resp==nil")
+		if resp.StatusCode == http.StatusAccepted {
+			resp.Body.Close()
+			log.Printf("SendAFile recieved resp.StatusCode == http.StatusAccepted: %s", req.URL)
+
+			return nil // upload completed
 		}
+
+		// opens file again
+		f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
+		if err != nil {
+			ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "Can't open the file: %s", fullfilename)
+			log.Printf("%s", ret)
+			return ret
+		}
+
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict
 			log.Printf("in the if resp.StatusCode == http.StatusConflict { // we expect StatusConflict\n")
 			var bodyjson liteimp.JsonFileStatus
 			// server responded "a file already exists"
 			fromserverjson, err, debugbytes := UnmarshalBody(resp) // unmarshals to JsonFileStatus,closes body
+			// response Body (resp.Body) here is closed
 			if err != nil {
+				// logs incorrect server respone
 				msgbytes, _ := json.MarshalIndent(bodyjson, "", " ")
-				log.Printf("Got = %s\n%s", string(debugbytes), errServerRespondedWithBadJson.SetDetails("want = %s", string(msgbytes)))
-				return errServerRespondedWithBadJson
+				ret = *errServerRespondedWithBadJson.SetDetailsSubErr(err, "want = %s", string(msgbytes))
+				log.Printf("Got = %s\n%s", string(debugbytes), ret)
+				return ret // do not retry, just return
 			}
 			// server sended a proper json response
-			f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
-			if err != nil {
-				terr := errCantOpenFileForReading.SetDetailsSubErr(err, "Cant's open file")
-				log.Printf("%s", *terr)
-				return terr
-			}
 
 			startfrom := fromserverjson.Startoffset
 			newoffset, err := f.Seek(startfrom, 0) // 0 = seek from the begining
 			if err != nil || newoffset != startfrom {
-				terr := errFileSeekErrorOffset.SetDetailsSubErr(err, "server wants offset=%d , we can only offset to=%d", startfrom, newoffset)
-				log.Printf("%s", *terr)
-				return *terr
+				ret = *errFileSeekErrorOffset.SetDetailsSubErr(err, "server wants offset=%d , we can only offset to=%d", startfrom, newoffset)
+				log.Printf("%s", ret)
+				return ret // do not retry, just return
 			}
 
 			bytesleft := stat.Size() - newoffset
 
 			query = req.URL.Query()
-			query.Set("startoffset", string(newoffset))
-			query.Set("count", string(bytesleft))
+			query.Set("startoffset", strconv.FormatInt(newoffset, 10))
+			query.Set("count", strconv.FormatInt(bytesleft, 10))
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
-			req.Body = f
-			continue
-			// next retry
+			log.Printf("second request with startoffset %s", req.URL.RawQuery)
+			// no delay, do expected request again
+			continue // cycles to next retry
 
+		} else {
+			log.Printf("Server responded with error, status: %s", resp.Status)
+			b := make([]byte, 500)
+			n, _ := resp.Body.Read(b)
+			b = b[:n]
+			log.Printf("%s", string(b))
 		}
-		if resp.StatusCode == http.StatusAccepted {
-			return nil
-		}
-		time.Sleep(2 * time.Second)
+		resp.Body.Close()
+		time.Sleep(waitBeforRetrySec * time.Second)
 		// upload failed or timed out? retry with current cookie
 	}
 	return ret
@@ -195,14 +232,19 @@ func main() {
 	logname := flag.String("log", "", "log file path and name.")
 	file := flag.String("file", "", "a file you want to upload")
 	flag.Parse()
-	count := 3
+	if len(os.Args) == 0 {
+		flag.PrintDefaults()
+		return
+	}
+
 	defer func() {
 		if err := recover(); err != nil {
-			count = count + 1 // on panic increment
+
 			log.Printf("uploader main has paniced:\n%s\n", err)
 			b := make([]byte, 2500) // enough buffer
 			n := runtime.Stack(b, true)
 			b = b[:n]
+			// logs stack trace
 			log.Printf("%d bytes of stack trace.\n%s", n, string(b))
 		}
 	}()
@@ -217,25 +259,54 @@ func main() {
 
 	}
 
+	// from hereafter use log for messages
 	log.SetOutput(flog)
-	// hereafter use log for messages
 
-	// uses cookies to hold sessionID
-	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // noerror
+	// uses cookies to hold sessionId
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
 	fullfilename := filepath.Clean(*file)
+	// TODO(zavla): compute SHA1 of a file
+	retries := 3
+	for index := 0; index < retries; index++ {
 
-	for index := 0; index < count; index++ {
-
-		err := SendAFile(bindAddress, fullfilename, jar)
+		err := SendAFile(uploadServerURL, fullfilename, jar)
 
 		if err == nil {
+			log.Printf("upload succsessful: file %s", fullfilename)
+			if err := MarkFileAsUploaded(fullfilename); err != nil {
+				// a non critical error
+				log.Printf("Can's set file attribute: %s", err)
+			}
 			break
 		}
-		log.Println(err)
+		log.Printf("Retry #%d. Calling func SendFile again. Previous error: %s", index+1, err)
 		//DEBUG!!! time to run server for debuging
 		time.Sleep(time.Second * 20)
 		// continue on expected errors. Server not ready, timeouts ...
 	}
 	log.Println("uploader exited.")
+}
+
+func MarkFileAsUploaded(fullfilename string) error {
+	// uses Windows API
+	ptrFilenameUint16, err := windows.UTF16PtrFromString(fullfilename)
+	if err != nil {
+		log.Printf("Can't convert filename to UTF16 %s", fullfilename)
+		return err
+	}
+	attr, err := windows.GetFileAttributes(ptrFilenameUint16)
+	if err != nil {
+		log.Printf("Can't get file attributes: %s", err)
+		return err
+	}
+	if attr&windows.FILE_ATTRIBUTE_ARCHIVE != 0 {
+		err := windows.SetFileAttributes(ptrFilenameUint16, attr^windows.FILE_ATTRIBUTE_ARCHIVE)
+		if err != nil {
+			log.Printf("Can't set file attribute: %s", err)
+			return err
+		}
+	}
+	return nil
+
 }

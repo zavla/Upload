@@ -38,7 +38,9 @@ func main() {
 	router := gin.Default()
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
-
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Output: flog,
+	}))
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{
 		Addr:              bindToAddress,

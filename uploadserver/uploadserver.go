@@ -198,16 +198,17 @@ func ConvertFileStateToJsonFileStatus(state fsdriver.FileState) *liteimp.JsonFil
 // Example: curl.exe -X POST http://127.0.0.1:64000/upload?&Filename="sendfile.rar" -T .\sendfile.rar
 func ServeAnUpload(c *gin.Context) {
 
-	strSessionId, err := c.Cookie("sessionID")
+	strSessionId, err := c.Cookie("sessionId")
 	if err != nil || strSessionId == "" { // no previous session. Only new files expected.
 
 		//generate new cookie
-		sessionID := uuid.New()
-		c.SetCookie("sessionId", sessionID.String(), 300, "", "", false, true)
-		RequestedAnUpload(c, strSessionId) // recieves new files only
+		newsessionID := uuid.New().String()
+		c.SetCookie("sessionId", newsessionID, 300, "", "", false, true)
+		RequestedAnUpload(c, newsessionID) // recieves new files only
 	} else {
 		// load session state
 		if state, found := clientsstates[strSessionId]; found {
+			//c.Error(fmt.Errorf("session continue %s", strSessionId))
 			if state.good {
 				RequestedAnUploadContinueUpload(c, state) // continue upload
 				return
@@ -216,8 +217,8 @@ func ServeAnUpload(c *gin.Context) {
 		}
 		// stale state
 		delete(clientsstates, strSessionId)
-		c.SetCookie("sessionID", "", 300, "", "", false, true)
-		c.JSON(http.StatusConflict, gin.H{"error": errSessionEnded.SetDetails("Requested session id %s is wrong.", strSessionId)})
+		c.SetCookie("sessionId", "", 300, "", "", false, true)
+		c.JSON(http.StatusBadRequest, gin.H{"error": errSessionEnded.SetDetails("Requested session id %s is wrong.", strSessionId)})
 		return
 
 	}
@@ -261,10 +262,11 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		// We expecting URL parametres
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		msgdetails := "" + string(jsonbytes)
+		c.SetCookie("sessionId", "", 300, "", "", false, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": errClientRequestShouldBindToJson.SetDetails("%s", msgdetails)})
 		return
 	}
-
+	c.Error(fmt.Errorf("fromClient.Startoffset == %d, whatIsInFile.Startoffset == %d", fromClient.Startoffset, whatIsInFile.Startoffset))
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
 		// client sends propper rest of the file
 		errreciver, writeresult := RecieveAndWriteAndWait(c.Request.Body,
@@ -281,6 +283,7 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 
 	} else {
+		c.SetCookie("sessionId", "", 300, "", "", false, true) // clear cookie
 		jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
 		msgdetails := "" + string(jsonbytes)
 		c.JSON(http.StatusBadRequest, gin.H{"error": errServerExpectsRestOfTheFile.SetDetails(msgdetails),

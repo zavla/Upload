@@ -1,0 +1,13 @@
+test/debug
+sendfile.rar
+testfile.rar
+testfile.rar.partialinfo
+upload.exe
+.vscode/launch.json
+test/testfile.rar
+test/testfile.rar.partialinfo
+uploader/debug
+uploader/uploader.exe
+testdata/
+cmd/sendfile.rar.partialinfo
+upload.code-workspace
