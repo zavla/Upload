@@ -4,9 +4,11 @@ import (
 	"Upload/errstr"
 	"Upload/liteimp"
 	"bytes"
+	"crypto/sha1"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash"
 	"io"
 	"io/ioutil"
 	"log"
@@ -32,6 +34,7 @@ var (
 	errFileSeekErrorOffset        = *errstr.NewError("uploader", 7, "File seek offset error.")
 	errServerDidNotAdmitUpload    = *errstr.NewError("uploader", 8, "Server did not admit upload. We can't be sure of successfull upload.")
 	errNumberOfRetriesExceeded    = *errstr.NewError("uploader", 9, "Number of retries exceeded.")
+	errServerForbiddesUpload      = *errstr.NewError("", 10, "Server fobidded upload. File already exists.")
 )
 
 // jar holds cookies and used by http.Client to get cookies from Response and to set cookies into Request
@@ -60,7 +63,7 @@ func eoe(exit bool, err error, descr string, args ...interface{}) {
 
 // SendAFile sends file to a micro service.
 // jar holds cookies from server http.Responses and use them in http.Requests
-func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar) error {
+func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.Hash) error {
 	// opens file
 	_, name := filepath.Split(fullfilename)
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
@@ -132,6 +135,9 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar) error {
 
 			continue // retries
 		}
+
+		resp.Body.Close()
+
 		log.Printf("Connected to: %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
 			resp.Body.Close()
@@ -182,6 +188,8 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar) error {
 			// no delay, do expected request again
 			continue // cycles to next retry
 
+		} else if resp.StatusCode == http.StatusForbidden {
+			return errServerForbiddesUpload
 		} else {
 			log.Printf("Server responded with error, status: %s", resp.Status)
 			b := make([]byte, 500)
@@ -189,7 +197,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar) error {
 			b = b[:n]
 			log.Printf("%s", string(b))
 		}
-		resp.Body.Close()
+
 		time.Sleep(waitBeforRetrySec * time.Second)
 		// upload failed or timed out? retry with current cookie
 	}
@@ -267,23 +275,26 @@ func main() {
 
 	fullfilename := filepath.Clean(*file)
 	// TODO(zavla): compute SHA1 of a file
-	retries := 3
-	for index := 0; index < retries; index++ {
+	hsha1, err := GetFileSHA1(fullfilename)
+	if err != nil {
+		log.Printf("Can't read file. %s", err)
 
-		err := SendAFile(uploadServerURL, fullfilename, jar)
+		return
+	}
 
-		if err == nil {
-			log.Printf("upload succsessful: file %s", fullfilename)
-			if err := MarkFileAsUploaded(fullfilename); err != nil {
-				// a non critical error
-				log.Printf("Can's set file attribute: %s", err)
-			}
-			break
+	err = SendAFile(uploadServerURL, fullfilename, jar, hsha1)
+
+	if err == nil {
+		log.Printf("upload succsessful: file %s", fullfilename)
+		if err := MarkFileAsUploaded(fullfilename); err != nil {
+			// a non critical error
+			log.Printf("Can's set file attribute: %s", err)
 		}
-		log.Printf("Retry #%d. Calling func SendFile again. Previous error: %s", index+1, err)
-		//DEBUG!!! time to run server for debuging
-		time.Sleep(time.Second * 20)
-		// continue on expected errors. Server not ready, timeouts ...
+		return
+	}
+	if err == errServerForbiddesUpload {
+		log.Printf("Server do not allow file upload")
+		return
 	}
 	log.Println("uploader exited.")
 }
@@ -309,4 +320,17 @@ func MarkFileAsUploaded(fullfilename string) error {
 	}
 	return nil
 
+}
+
+func GetFileSHA1(fullfilename string) (hash.Hash, error) {
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	if err != nil {
+
+		return nil, err
+	}
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
