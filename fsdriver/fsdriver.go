@@ -158,9 +158,7 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *
 		}
 		if curlen > 0 {
 			// add newbytes into actual file
-			from := i * lenhunk
-			to := from + curlen
-			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)
+			nhavewritten, err := wa.WriteAt(newbytes[i*lenhunk:curlen], destinationrecord.Startoffset)
 			if err != nil {
 				// write of current block (hunk) failed, not big deal.
 				// revert actual file, though it's not necessary, because log file doesn't have step2 record.

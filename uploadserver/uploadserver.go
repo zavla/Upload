@@ -123,7 +123,7 @@ func WriteChanneltoDisk(chSource chan []byte,
 	nbyteswritten := int64(0) // return nbyteswritten to chResult
 	for !closed {
 		select {
-		case b, ok := <-chSource: // capacity is > 1. Waits when empty. reads when there is something.
+		case b, ok := <-chSource: // capacity is > 1. Waits when chSource is empty. Reads when there is something.
 			if !ok { // ok=false means closed
 
 				closed = true
@@ -320,7 +320,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 		return // http request ends, wrong URL.
 	}
 	if req.Filename == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errWrongURLParameters.SetDetails("Expected &filename", "")})
+		c.JSON(http.StatusBadRequest, gin.H{"error": errWrongURLParameters.SetDetails("Expected url parameter &filename")})
 		return
 	}
 
