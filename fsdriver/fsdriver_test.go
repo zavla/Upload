@@ -25,6 +25,7 @@ type dcase struct { // used in two funcs
 	wantJOff     int64
 	wantErr      bool
 	errkind      error
+	wantVer      uint32
 }
 type towrite struct {
 	dcase
@@ -51,7 +52,9 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 			args:         args{log1}, // here goes io.Reader to read from
 			wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 0}},
 			wantErr:      false,
-			errkind:      nil},
+			errkind:      nil,
+			wantVer:      0,
+		},
 	}
 	// next a first! recieved with panic file
 	log2, err := os.Open("./testdata/checklater/sendfile.rar.partialinfo")
@@ -63,10 +66,12 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 		name:         "recived with panic",
 		args:         args{log2}, // here goes io.Reader to read from
 		wantRetState: FileState{Startoffset: 94207, FileProperties: FileProperties{FileSize: 16961536}},
-		wantJOff:     0xDC,
+		wantJOff:     0xDC + 4,
 		wantErr:      true,
 		errkind:      errPartialFileCorrupted,
+		wantVer:      structversion2,
 	})
+
 	// next transform towrite structs to dcase structs
 	for k, v := range datainfiles {
 		// other test cases
@@ -82,11 +87,35 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 			wantJOff:     v.wantJOff,
 			wantErr:      v.wantErr,
 			errkind:      v.errkind,
+			wantVer:      v.wantVer,
 		})
 	}
+
+	// here goes checks
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRetState, offsetinjournal, err := ReadCurrentStateFromPartialFile(tt.args.wp)
+			ver, err := GetLogFileVersion(tt.args.wp)
+			if err != nil {
+				t.Errorf("version reading error %s", err)
+				return
+			}
+			if ver != tt.wantVer {
+				t.Errorf("version error, want = %x, got = %x", tt.wantVer, ver)
+				return
+			}
+			var gotRetState FileState
+			var offsetinjournal int64
+
+			switch ver {
+			case structversion1:
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFile_structversion1(tt.args.wp)
+
+			case structversion2:
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFile_structversion2(tt.args.wp)
+			default:
+				t.Errorf("unexpected ver in file %x", ver)
+				return
+			}
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReadCurrentStateFromPartialFile() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -115,7 +144,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	//----------------------- Add here cases
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
-	startlen := int64(binary.Size(StartStruct{}))
+	startlen := int64(binary.Size(StartStruct{}) + binary.Size(uint32(structversion1)))
 	recordlen := int64(binary.Size(PartialFileInfo{}))
 
 	data := []towrite{
@@ -260,7 +289,11 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 	}
 	//-----------------------
-
+	// everywhere is structversion1
+	for k, _ := range data {
+		data[k].wantVer = structversion1
+	}
+	//
 	ret := make(map[string]towrite) // a return, map[filename]towrite
 
 	// next is a start header of a log file
@@ -268,7 +301,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		VersionBytesEnd:         structversion1,
 		TotalExpectedFileLength: 1000}
 
-	// loop creats test files
+	// loop writes to test files
 	for _, addtofile := range data {
 
 		f, err := os.OpenFile(filepath.Join(testdata, addtofile.name), os.O_CREATE|os.O_TRUNC, 0)
@@ -276,7 +309,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 			t.Errorf("%s", err)
 			return ret, err
 		}
-		binary.Write(f, binary.LittleEndian, startrecord) // writes header
+		binary.Write(f, binary.LittleEndian, uint32(structversion1)) // writes version
+		binary.Write(f, binary.LittleEndian, startrecord)            // writes header
 
 		{ // writes all the rest bytes
 			binary.Write(f, binary.LittleEndian, addtofile.rec.Bytes())
