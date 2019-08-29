@@ -16,3 +16,16 @@ func TestStrconv(t *testing.T) {
 		}
 	})
 }
+
+// func TestSliceToString(t *testing.T) {
+// 	h := sha1.New()
+// 	h.Write([]byte("firefox"))
+// 	sl := h.Sum(nil)
+// 	t.Errorf("%#x\n", sl)
+// 	t.Errorf("% x\n", sl)
+// 	t.Errorf("%x\n", sl)
+// 	t.Errorf("%s\n", sl)
+// 	t.Errorf("%v\n", sl)
+// 	t.Errorf("%#v\n", sl)
+
+// }

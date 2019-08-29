@@ -7,6 +7,8 @@ import (
 	"net/http"
 )
 
+const KeysessionID = "sessionId"
+
 var (
 	ErrSeccessfullUpload = *errstr.NewError("uploadserver", 18, "Upload successfully completed.")
 )

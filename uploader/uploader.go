@@ -90,6 +90,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 
 	req.ContentLength = stat.Size()          // file size
 	req.Header.Add("Expect", "100-continue") // client will not send body at once, it will wait for server response status "100-continue"
+	req.Header.Add("sha1", fmt.Sprintf("%x", hsha1.Sum(nil)))
 
 	query := req.URL.Query()
 	query.Add("filename", name) // url parameter &filename

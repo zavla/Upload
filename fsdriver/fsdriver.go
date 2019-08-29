@@ -24,6 +24,9 @@ var (
 	errPartialFileCantDelete          = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
 )
 
+var headersize int64
+var recordsize int64
+
 const constwriteblocklen = (1 << 16) - 1
 
 type CurrentAction byte
@@ -70,9 +73,15 @@ func (s *FileState) Setoffset(offset int64) *FileState {
 type StartStruct struct {
 	VersionBytes            uint32
 	TotalExpectedFileLength int64
+	Sha1                    [20]byte
 	VersionBytesEnd         uint32
 }
 
+func init() {
+	headersize = int64(binary.Size(StartStruct{}))
+	recordsize = int64(binary.Size(PartialFileInfo{}))
+
+}
 func NewStartStruct() *StartStruct {
 	return &StartStruct{
 		VersionBytes:    structversion1,
@@ -88,7 +97,7 @@ func CreatePartialFileName(name string) string {
 }
 
 //rename to CreateNewLogFile
-func BeginNewPartialFile(dir, name string, lcontent int64) error {
+func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) error {
 	namepart := CreatePartialFileName(name)
 	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0)
 	if err != nil {
@@ -96,8 +105,11 @@ func BeginNewPartialFile(dir, name string, lcontent int64) error {
 	}
 
 	defer wp.Close()
+	// fills header of journal file
 	aLogHeader := NewStartStruct()
 	aLogHeader.TotalExpectedFileLength = lcontent
+	copy(aLogHeader.Sha1[:], bytessha1)
+
 	err = binary.Write(wp, binary.LittleEndian, *aLogHeader)
 	if err != nil {
 		return errPartialFileWritingError
@@ -147,18 +159,22 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *
 
 	totalbyteswritten := int64(0)
 	for i := 0; i <= numOfhunk; i++ { // steps one time more then numOfhunks, last hunk is not full.
-		// add step1 into journal = "write begin"
-		err := AddToPartialFileInfo(wp, startedwriting, *destinationrecord)
-		if err != nil {
-			return totalbyteswritten, err
-		}
+		// dicides what is the current block length
 		if i == numOfhunk {
 			// last+1 hunk is for the rest of bytes (if any)
 			curlen = l - i*lenhunk
 		}
+		// add step1 into journal = "write begin"
+		destinationrecord.Count = int64(curlen)
+		err := AddToPartialFileInfo(wp, startedwriting, *destinationrecord)
+		if err != nil {
+			return totalbyteswritten, err
+		}
 		if curlen > 0 {
 			// add newbytes into actual file
-			nhavewritten, err := wa.WriteAt(newbytes[i*lenhunk:curlen], destinationrecord.Startoffset)
+			from := i * lenhunk
+			to := from + curlen
+			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)
 			if err != nil {
 				// write of current block (hunk) failed, not big deal.
 				// revert actual file, though it's not necessary, because log file doesn't have step2 record.
@@ -198,15 +214,12 @@ func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, info PartialFileInf
 
 // ReadCurrentStateFromPartialFile reads log(journal) file.
 // It returns last correct log record.
-// TODO: return an offset in log file where it is corrupted
 func ReadCurrentStateFromPartialFile(wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 
 	var startstruct StartStruct
 
 	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
 	errInLog = nil
-	headersize := int64(binary.Size(startstruct)) // TODO(zavla): should be const!
-	recordsize := int64(binary.Size(PartialFileInfo{}))
 
 	// correctrecordoffset points to the end of the last correct record
 	correctrecordoffset = 0 // holds journal file offset
