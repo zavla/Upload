@@ -3,7 +3,6 @@ package fsdriver
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +14,8 @@ const (
 )
 
 type args struct {
-	wp io.Reader
+	//wp io.Reader
+	wp *os.File // a need to seek(0,0)
 }
 
 type dcase struct { // used in two funcs
@@ -32,7 +32,7 @@ type towrite struct {
 	rec bytes.Buffer // this is content of the test log file, not including startstruct1
 }
 
-func TestReadCurrentStateFromPartialFile(t *testing.T) {
+func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 	// here we create files
 	datainfiles, err := createtestdata(t)
 	// datainfiles holds files data and expected return from ReadCurrentStateFromPartialFile
@@ -53,7 +53,7 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 			wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 0}},
 			wantErr:      false,
 			errkind:      nil,
-			wantVer:      0,
+			wantVer:      structversion2,
 		},
 	}
 	// next a first! recieved with panic file
@@ -69,7 +69,7 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 		wantJOff:     0xDC + 4,
 		wantErr:      true,
 		errkind:      errPartialFileCorrupted,
-		wantVer:      structversion2,
+		wantVer:      structversion1,
 	})
 
 	// next transform towrite structs to dcase structs
@@ -82,6 +82,23 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 			return
 		}
 		tests = append(tests, dcase{name: k,
+			args:         args{f},
+			wantRetState: v.wantRetState,
+			wantJOff:     v.wantJOff,
+			wantErr:      v.wantErr,
+			errkind:      v.errkind,
+			wantVer:      v.wantVer,
+		})
+	}
+	//Ver2 datafile
+	datafilesVer2, err := createtestdataVer2(t)
+	for k, v := range datafilesVer2 {
+		f, err := os.Open(filepath.Join(testdata, v.name))
+		if err != nil {
+			t.Errorf("%s", err)
+		}
+		tests = append(tests, dcase{
+			name:         k,
 			args:         args{f},
 			wantRetState: v.wantRetState,
 			wantJOff:     v.wantJOff,
@@ -103,15 +120,20 @@ func TestReadCurrentStateFromPartialFile(t *testing.T) {
 				t.Errorf("version error, want = %x, got = %x", tt.wantVer, ver)
 				return
 			}
+			// _, err = tt.args.wp.Seek(0, 0)
+			// if err != nil {
+			// 	t.Errorf("can't seek 0 . %s", err)
+			// 	return
+			// }
 			var gotRetState FileState
 			var offsetinjournal int64
 
 			switch ver {
 			case structversion1:
-				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFile_structversion1(tt.args.wp)
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFileVer1(structversion1, tt.args.wp)
 
 			case structversion2:
-				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFile_structversion2(tt.args.wp)
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFileVer2(structversion2, tt.args.wp)
 			default:
 				t.Errorf("unexpected ver in file %x", ver)
 				return
@@ -144,8 +166,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	//----------------------- Add here cases
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
-	startlen := int64(binary.Size(StartStruct{}) + binary.Size(uint32(structversion1)))
-	recordlen := int64(binary.Size(PartialFileInfo{}))
+	startlen := int64(binary.Size(StartStructVer1{}) + binary.Size(uint32(structversion1)))
+	recordlen := int64(binary.Size(PartialFileInfoVer1{}))
 
 	data := []towrite{
 		towrite{
@@ -164,7 +186,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
 			},
-			rec: tobytes(PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
@@ -174,7 +196,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
-			rec: tobytes(PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 1000},
+			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
 		},
 		towrite{
@@ -185,8 +207,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: false,
 				errkind: nil, // file uploaded fully with one write
 			},
-			rec: tobytes(PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
@@ -196,8 +218,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
-			rec: tobytes(PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfo{Action: successwriting, Startoffset: 10, Count: 1000}),
+			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 10, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
@@ -208,10 +230,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 500, Count: 500}),
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 500}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
@@ -222,9 +244,9 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // corrupt
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -236,10 +258,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -251,10 +273,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: CurrentAction(99), Startoffset: 501, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: CurrentAction(99), Startoffset: 501, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -266,10 +288,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 500, Count: 499},
-				PartialFileInfo{Action: startedwriting, Startoffset: 500, Count: 499},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 499},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 499},
 			),
 		},
 		towrite{
@@ -281,10 +303,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: nil, // no error
 			},
 			rec: tobytes(
-				PartialFileInfo{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfo{Action: startedwriting, Startoffset: 500, Count: 500},
-				PartialFileInfo{Action: successwriting, Startoffset: 500, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 500},
+				PartialFileInfoVer1{Action: successwriting, Startoffset: 500, Count: 500},
 			),
 		},
 	}
@@ -297,7 +319,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	ret := make(map[string]towrite) // a return, map[filename]towrite
 
 	// next is a start header of a log file
-	startrecord := StartStruct{VersionBytes: structversion1,
+	startrecord := StartStructVer1{VersionBytes: structversion1,
 		VersionBytesEnd:         structversion1,
 		TotalExpectedFileLength: 1000}
 
@@ -310,6 +332,190 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 			return ret, err
 		}
 		binary.Write(f, binary.LittleEndian, uint32(structversion1)) // writes version
+		binary.Write(f, binary.LittleEndian, startrecord)            // writes header
+
+		{ // writes all the rest bytes
+			binary.Write(f, binary.LittleEndian, addtofile.rec.Bytes())
+		}
+		f.Close()
+
+		ret[addtofile.name] = addtofile
+	}
+	return ret, nil
+}
+
+//testdataVer2
+func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
+	//----------------------- Add here cases
+	// data is a slice to hold a test case "dcase" and file content "rec"
+	// Every file will start with startstruct
+	startlen := int64(binary.Size(StartStructVer2{}) + binary.Size(uint32(structversion2)))
+	recordlen := int64(binary.Size(PartialFileInfoVer2{}))
+
+	data := []towrite{
+		towrite{
+			dcase: dcase{name: "onlystart",
+				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 0,
+				wantErr:      false,
+				errkind:      nil,
+			},
+			rec: bytes.Buffer{}}, // here no bytes in file
+		towrite{
+			dcase: dcase{name: "onlyfirstofpair",
+				// last successful record points to offset 0
+				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 0,
+				wantErr:      true,
+				errkind:      errPartialFileCorrupted,
+			},
+			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000}),
+		},
+		towrite{
+			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
+				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 0,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
+			},
+			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				[]byte{01, 02, 03}),
+		},
+		towrite{
+			dcase: dcase{name: "fullPair1000",
+				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: false,
+				errkind: nil, // file uploaded fully with one write
+			},
+			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 1000}),
+		},
+		towrite{
+			dcase: dcase{name: "inPairFirstOffsetIsBigger",
+				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 0,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+			},
+			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 10, Count: 1000}),
+		},
+		towrite{
+			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
+				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 500}),
+		},
+		towrite{
+			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
+				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // corrupt
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+			),
+		},
+		towrite{
+			dcase: dcase{name: "ManyPairsWrongAction",
+				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+			),
+		},
+		towrite{
+			dcase: dcase{name: "ManyPairsNotAllowedAction",
+				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: CurrentAction(99), Startoffset: 501, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+			),
+		},
+		towrite{
+			dcase: dcase{name: "TwoPairsLastIsWrong",
+				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 2*recordlen,
+
+				wantErr: true,
+				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 499},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 499},
+			),
+		},
+		towrite{
+			dcase: dcase{name: "TwoPairsAllComplete",
+				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantJOff:     startlen + 4*recordlen,
+
+				wantErr: false,
+				errkind: nil, // no error
+			},
+			rec: tobytes(
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 500},
+				PartialFileInfoVer2{Action: successwriting, Startoffset: 500, Count: 500},
+			),
+		},
+	}
+	//-----------------------
+	// everywhere is structversion1
+	for k, _ := range data {
+		data[k].wantVer = structversion2
+		data[k].name = data[k].name + "Ver2"
+	}
+	//
+	ret := make(map[string]towrite) // a return, map[filename]towrite
+
+	// next is a start header of a log file
+	startrecord := StartStructVer2{VersionBytes: structversion2,
+		VersionBytesEnd:         structversion2,
+		TotalExpectedFileLength: 1000}
+
+	// loop writes to test files
+	for _, addtofile := range data {
+		// CREATES testdata files
+		f, err := os.OpenFile(filepath.Join(testdata, addtofile.name), os.O_CREATE|os.O_TRUNC, 0)
+		if err != nil {
+			t.Errorf("%s", err)
+			return ret, err
+		}
+		binary.Write(f, binary.LittleEndian, uint32(structversion2)) // writes version
 		binary.Write(f, binary.LittleEndian, startrecord)            // writes header
 
 		{ // writes all the rest bytes

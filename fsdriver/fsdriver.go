@@ -13,15 +13,16 @@ import (
 //--------------------
 
 var (
-	errCouldNotAddToFile              = *errstr.NewError("fsdriver", 1, "Could not add to file")
-	errPartialFileVersionTagReadError = *errstr.NewError("fsdriver", 5, "Transaction Log file header read error.")
-	errPartialFileReadingError        = *errstr.NewError("fsdriver", 6, "Transaction Log file reading error.")
-	errPartialFileEmpty               = *errstr.NewError("fsdriver", 7, "Transaction Log file is empty.")
-	errPartialFileCorrupted           = *errstr.NewError("fsdriver", 8, "Transaction Log file corrupted.")
-	errPartialFileWritingError        = *errstr.NewError("fsdriver", 9, "Transaction Log file writing error.")
-	errFileOpenForReadWriteError      = *errstr.NewError("fsdriver", 10, "Open file for read and write error.")
-	errForbidenToUpdateAFile          = *errstr.NewError("fsdriver", 11, "File already exists, can't overwrite.")
-	errPartialFileCantDelete          = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
+	errCouldNotAddToFile                = *errstr.NewError("fsdriver", 1, "Could not add to file")
+	errPartialFileVersionTagReadError   = *errstr.NewError("fsdriver", 5, "Transaction Log file header read error.")
+	errPartialFileReadingError          = *errstr.NewError("fsdriver", 6, "Transaction Log file reading error.")
+	errPartialFileEmpty                 = *errstr.NewError("fsdriver", 7, "Transaction Log file is empty.")
+	errPartialFileCorrupted             = *errstr.NewError("fsdriver", 8, "Transaction Log file corrupted.")
+	errPartialFileWritingError          = *errstr.NewError("fsdriver", 9, "Transaction Log file writing error.")
+	errFileOpenForReadWriteError        = *errstr.NewError("fsdriver", 10, "Open file for read and write error.")
+	errForbidenToUpdateAFile            = *errstr.NewError("fsdriver", 11, "File already exists, can't overwrite.")
+	errPartialFileCantDelete            = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
+	errPartialFileVersionTagUnsupported = *errstr.NewError("fsdriver", 13, "Transaction Log file version unsupported.")
 )
 
 const constwriteblocklen = (1 << 16) - 1
@@ -46,12 +47,52 @@ const supportsLatestVer uint32 = structversion2
 
 // ---------------Log file versions END
 
+//---------------PartialFileInfoVerXXX
 // PartialFileInfo is a record in log file.
+// This is always the latest version than can hold all old versions of record.
 type PartialFileInfo struct {
 	Action      CurrentAction
 	Startoffset int64
 	Count       int64
+	Crc32       int32
 }
+
+// this is record version 1
+type PartialFileInfoVer1 struct {
+	Action      CurrentAction
+	Startoffset int64
+	Count       int64
+}
+
+// this method translates PartialFileInfo to old version 1
+func (r PartialFileInfo) Ver1() PartialFileInfoVer1 {
+	return PartialFileInfoVer1{
+		Action:      r.Action,
+		Startoffset: r.Startoffset,
+		Count:       r.Count,
+	}
+}
+
+// this is record version 2
+type PartialFileInfoVer2 struct {
+	Action      CurrentAction
+	Startoffset int64
+	Count       int64
+	Crc32       int32
+}
+
+// this method translates PartialFileInfo to old version 1
+func (r PartialFileInfo) Ver2() PartialFileInfoVer2 {
+	return PartialFileInfoVer2{
+		Action:      r.Action,
+		Startoffset: r.Startoffset,
+		Count:       r.Count,
+		Crc32:       r.Crc32,
+	}
+}
+
+//---------------PartialFileInfoVerXXX
+
 type FileProperties struct {
 	FileSize int64
 	Sha1     []byte
@@ -73,20 +114,47 @@ func (s *FileState) Setoffset(offset int64) *FileState {
 	return s
 }
 
+//---------------StartStruct versions
 // StartStruct is a start record in log file.
 // Holds journal file version number
 // This a a header of the journal file.
+// StartStruct can hold every old version @ver.
 type StartStruct struct {
 	VersionBytes            uint32
 	TotalExpectedFileLength int64
 	Sha1                    [20]byte
 	VersionBytesEnd         uint32
 }
-type StartStruct_structversion2 struct {
+type StartStructVer1 struct {
 	VersionBytes            uint32
 	TotalExpectedFileLength int64
 	VersionBytesEnd         uint32
 }
+type StartStructVer2 struct {
+	VersionBytes            uint32
+	TotalExpectedFileLength int64
+	Sha1                    [20]byte
+	VersionBytesEnd         uint32
+}
+
+func (s StartStruct) Ver1() StartStructVer1 {
+	return StartStructVer1{
+		VersionBytes:            s.VersionBytes,
+		VersionBytesEnd:         s.VersionBytesEnd,
+		TotalExpectedFileLength: s.TotalExpectedFileLength,
+	}
+}
+func (s StartStruct) Ver2() StartStructVer2 {
+	return StartStructVer2{
+		VersionBytes:            s.VersionBytes,
+		VersionBytesEnd:         s.VersionBytesEnd,
+		TotalExpectedFileLength: s.TotalExpectedFileLength,
+		Sha1:                    s.Sha1,
+	}
+
+}
+
+//---------------StartStruct versions
 
 func NewStartStruct() *StartStruct {
 	return &StartStruct{
@@ -135,14 +203,35 @@ func OpenRead(dir, name string) (*os.File, error) {
 
 // rename to OpenWriteCreate
 func OpenActualFile(dir, name string) (*os.File, error) {
+	// seeks END
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0)
 	return f, err
 }
 
+// opens journal file and seeks offset 0 to read version then seeks END
+func OpenJournalFile(dir, name string) (*os.File, uint32, error) {
+	// opens at the BEGINING
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0)
+	if err != nil {
+		return f, 0, err
+	}
+	ver, err := GetLogFileVersion(f)
+	if err != nil {
+		// do not seek END on error
+		return f, 0, err
+	}
+	_, err = f.Seek(0, 2) // END !!!
+	if err != nil {
+		// can't seek = can't use file
+		return f, 0, err
+	}
+	return f, ver, err
+}
+
 //rename to PrepareFilesForWrite
-func OpenTwoCorrespondentFiles(dir, name, namepart string) (wp, wa *os.File, errwp, errwa error) {
+func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *os.File, errwp, errwa error) {
 	wa, wp = nil, nil // named return
-	wp, errwp = OpenActualFile(dir, namepart)
+	wp, ver, errwp = OpenJournalFile(dir, namepart)
 	if errwp != nil {
 		return
 	}
@@ -151,16 +240,16 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (wp, wa *os.File, err
 	if errwa != nil {
 		return
 	}
-	return //named wp, wa, errwp, errwa
+	return //named ver, wp, wa, errwp, errwa
 }
 
 // AddBytesToFileInHunks writes to log file first and appends only to the actual file.
 // Writes to actual file in blocks (hunks).
 //rename AddBytesToAFileUseTransactionLog
-func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *PartialFileInfo) (int64, error) {
-
+func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destinationrecord *PartialFileInfo) (int64, error) {
+	// ver is a journal file version
 	l := len(newbytes)
-	lenhunk := constwriteblocklen
+	lenhunk := constwriteblocklen // the size of block
 	curlen := lenhunk
 
 	numOfhunk := l / lenhunk
@@ -175,13 +264,14 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *
 			// last+1 hunk is for the rest of bytes (if any)
 			curlen = l - i*lenhunk
 		}
-		// add step1 into journal = "write begin"
-		destinationrecord.Count = int64(curlen)
-		err := AddToPartialFileInfo(wp, startedwriting, *destinationrecord)
-		if err != nil {
-			return totalbyteswritten, err
-		}
 		if curlen > 0 {
+			// add step1 into journal = "write begin"
+			destinationrecord.Count = int64(curlen)
+			err := AddToPartialFileInfo(wp, startedwriting, ver, *destinationrecord)
+			if err != nil {
+				return totalbyteswritten, err
+			}
+
 			// add newbytes into actual file
 			from := i * lenhunk
 			to := from + curlen
@@ -199,7 +289,7 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *
 			// add step2 into journal = "write end"
 			// whatIsInFile.Startoffset looks like transaction number
 			destinationrecord.Count = int64(nhavewritten)
-			err = AddToPartialFileInfo(wp, successwriting, *destinationrecord)
+			err = AddToPartialFileInfo(wp, successwriting, ver, *destinationrecord)
 			if err != nil {
 				destinationrecord.Count = 0
 				return totalbyteswritten, err // log file failer. (free disk space for e.x.)
@@ -213,10 +303,23 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, destinationrecord *
 }
 
 // AddToPartialFileInfo writes binary representation of PartialFileInfo into log file.
-func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, info PartialFileInfo) error {
-
+func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, ver uint32, info PartialFileInfo) error {
+	// ver is a journal file version
+	// PartialFileInfo is always can hold old versions, we cast it downto an old version if @ver is not the latest version
 	info.Action = step
-	err := binary.Write(pfi, binary.LittleEndian, &info)
+
+	var err error
+	switch ver {
+	case structversion2:
+		infoVer2 := info.Ver2()
+		err = binary.Write(pfi, binary.LittleEndian, &infoVer2)
+	case structversion1:
+		infoVer1 := info.Ver1()
+		err = binary.Write(pfi, binary.LittleEndian, &infoVer1)
+	default:
+		return errPartialFileVersionTagUnsupported
+	}
+
 	if err != nil {
 		return errCouldNotAddToFile
 	}
@@ -229,241 +332,15 @@ func GetLogFileVersion(wp io.Reader) (uint32, error) {
 	err := binary.Read(wp, binary.LittleEndian, &ret)
 	if err == io.EOF {
 		// empty file. No error.
-		return 0, nil
+		return supportsLatestVer, nil //uses last supported by this fsdriver version
 	}
 	if err != nil {
 		return 0, errPartialFileReadingError
 	}
 	if ret < structversion1 || ret > supportsLatestVer {
-		return 0, errPartialFileVersionTagReadError
+		return 0, errPartialFileVersionTagUnsupported
 	}
 	return ret, nil // supported version
-}
-
-// for future support
-func ReadCurrentStateFromPartialFile_structversion2(wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
-	// in case of file format change, header must become bigger.
-	// this will allow the code below to read an old header and a new one into StartStructX
-	var startstruct StartStruct_structversion2
-	var headersize = int64(binary.Size(StartStruct_structversion2{})) //depends on header version
-	var recordsize = int64(binary.Size(PartialFileInfo{}))
-
-	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
-	errInLog = nil
-
-	// correctrecordoffset points to the end of the last correct record
-	correctrecordoffset = int64(binary.Size(structversion2)) // holds journal file offset
-
-	retState = *NewFileState(0, nil, 0)
-
-	// reads start bytes in file
-	err := binary.Read(wp, binary.LittleEndian, &startstruct)
-	if err != nil {
-		if err == io.EOF {
-			// empty file. No error.
-			return retState,
-				0,
-				nil
-		}
-		// No startstruct in header. error. File created but somehow without a startstruct header.
-		return retState,
-			correctrecordoffset,
-			errPartialFileVersionTagReadError
-	}
-
-	// Here there is a header.
-	// Check the header for correctness.
-	if startstruct.VersionBytes == structversion2 && startstruct.VersionBytesEnd == structversion2 {
-		correctrecordoffset += headersize
-		retState.FileSize = startstruct.TotalExpectedFileLength
-
-		currrecord := PartialFileInfo{} // current log record
-
-		// initial value for prevrecord wil never be a match to currrecord
-		prevrecord := PartialFileInfo{
-			Startoffset: -1,
-			Action:      successwriting} // forced to do not make a match
-
-		lastsuccessrecord := PartialFileInfo{} // should not be a pointer
-		numrecords := int64(0)
-		lasterr := error(nil)
-		maybeErr := false
-
-		for { // reading records one by one
-			err := binary.Read(wp, binary.LittleEndian, &currrecord)
-			// next lines are dealing with bad errors while reading. But EOF is special, it means we succeded is reading.
-			if err == io.ErrUnexpectedEOF { // read ended unexpectedly
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			} else if err != nil && err != io.EOF { // read failed, use lastsuccessrecord
-				//returns previous good record
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileReadingError // we dont know why we cant read journal. may be its ok?.
-			}
-
-			// make sure offsets come in ascending order
-			// next lines are dealing with offsets in current record, decides if this record is good
-			switch {
-			case currrecord.Startoffset > retState.FileSize:
-				// current record do not corresond to expected file size
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			case currrecord.Startoffset == prevrecord.Startoffset &&
-				currrecord.Action == successwriting &&
-				prevrecord.Action == startedwriting:
-
-				// current record found a pair. move to next record.
-				numrecords++
-				correctrecordoffset += recordsize * 2 // move correctrecordoffset forward 2 records (from last "correct one")
-				lastsuccessrecord = currrecord        // current record is a pair. Move pointer farward.
-				maybeErr = false
-			case currrecord.Startoffset >= prevrecord.Startoffset &&
-				currrecord.Action == startedwriting &&
-				prevrecord.Action == successwriting:
-				// so far so good. this is a step to next record.
-				// skip this recored. it is a "start to write" record. Wait for its "pair" record.
-				numrecords++
-				maybeErr = true
-			case err == io.EOF:
-
-				// we reach end of file. EOF is not an error in data. We have read the last record.
-				lasterr = nil
-				if maybeErr {
-					lasterr = errPartialFileCorrupted
-				}
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					lasterr // at EOF it depends on previous record if this is corruption or no.
-			default:
-				// current record is bad.
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			} // end switch
-			prevrecord = currrecord // makes previous record a current one
-			// continue to next record
-		}
-	} else {
-		// incorrect header
-		return retState, correctrecordoffset, errPartialFileVersionTagReadError.SetDetails("has version = %x", startstruct.VersionBytes)
-	}
-
-}
-
-// ReadCurrentStateFromPartialFile reads log(journal) file.
-// It returns last correct log record.
-func ReadCurrentStateFromPartialFile_structversion1(wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
-	// in case of file format change, header must become bigger.
-	// this will allow the code below to read an old header and a new one into StartStructX
-	var startstruct StartStruct
-	var headersize = int64(binary.Size(StartStruct{})) //depends on header version
-	var recordsize = int64(binary.Size(PartialFileInfo{}))
-
-	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
-	errInLog = nil
-
-	// correctrecordoffset points to the end of the last correct record
-	correctrecordoffset = int64(binary.Size(structversion1)) // holds journal file offset
-
-	retState = *NewFileState(0, nil, 0)
-
-	// reads start bytes in file
-	err := binary.Read(wp, binary.LittleEndian, &startstruct)
-	if err != nil {
-		if err == io.EOF {
-			// empty file. No error.
-			return retState,
-				0,
-				nil
-		}
-		// No startstruct in header. error. File created but somehow without a startstruct header.
-		return retState,
-			correctrecordoffset,
-			errPartialFileVersionTagReadError
-	}
-
-	// Here there is a header.
-	// Check the header for correctness.
-	if startstruct.VersionBytes == structversion1 && startstruct.VersionBytesEnd == structversion1 {
-		correctrecordoffset += headersize
-		retState.FileSize = startstruct.TotalExpectedFileLength
-
-		currrecord := PartialFileInfo{} // current log record
-
-		// initial value for prevrecord wil never be a match to currrecord
-		prevrecord := PartialFileInfo{
-			Startoffset: -1,
-			Action:      successwriting} // forced to do not make a match
-
-		lastsuccessrecord := PartialFileInfo{} // should not be a pointer
-		numrecords := int64(0)
-		lasterr := error(nil)
-		maybeErr := false
-
-		for { // reading records one by one
-			err := binary.Read(wp, binary.LittleEndian, &currrecord)
-			// next lines are dealing with bad errors while reading. But EOF is special, it means we succeded is reading.
-			if err == io.ErrUnexpectedEOF { // read ended unexpectedly
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			} else if err != nil && err != io.EOF { // read failed, use lastsuccessrecord
-				//returns previous good record
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileReadingError // we dont know why we cant read journal. may be its ok?.
-			}
-
-			// make sure offsets come in ascending order
-			// next lines are dealing with offsets in current record, decides if this record is good
-			switch {
-			case currrecord.Startoffset > retState.FileSize:
-				// current record do not corresond to expected file size
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			case currrecord.Startoffset == prevrecord.Startoffset &&
-				currrecord.Action == successwriting &&
-				prevrecord.Action == startedwriting:
-
-				// current record found a pair. move to next record.
-				numrecords++
-				correctrecordoffset += recordsize * 2 // move correctrecordoffset forward 2 records (from last "correct one")
-				lastsuccessrecord = currrecord        // current record is a pair. Move pointer farward.
-				maybeErr = false
-			case currrecord.Startoffset >= prevrecord.Startoffset &&
-				currrecord.Action == startedwriting &&
-				prevrecord.Action == successwriting:
-				// so far so good. this is a step to next record.
-				// skip this recored. it is a "start to write" record. Wait for its "pair" record.
-				numrecords++
-				maybeErr = true
-			case err == io.EOF:
-
-				// we reach end of file. EOF is not an error in data. We have read the last record.
-				lasterr = nil
-				if maybeErr {
-					lasterr = errPartialFileCorrupted
-				}
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					lasterr // at EOF it depends on previous record if this is corruption or no.
-			default:
-				// current record is bad.
-				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
-					correctrecordoffset,
-					errPartialFileCorrupted
-			} // end switch
-			prevrecord = currrecord // makes previous record a current one
-			// continue to next record
-		}
-	} else {
-		// incorrect header
-		return retState, correctrecordoffset, errPartialFileVersionTagReadError
-	}
 }
 
 //rename GetFileStatus
@@ -504,10 +381,10 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	// here log(journal) file already exists
 	switch ver {
 	case structversion1:
-		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFile_structversion1(wp) // here we read journal file
+		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFileVer1(ver, wp) // here we read journal file
 
 	case structversion2:
-		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFile_structversion2(wp) // here we read journal file
+		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFileVer2(ver, wp) // here we read journal file
 	default: // unknown version
 		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
 	}

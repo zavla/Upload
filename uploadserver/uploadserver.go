@@ -110,7 +110,7 @@ func WriteChanneltoDisk(chSource chan []byte,
 
 	// to begin open files
 	namelog := fsdriver.CreatePartialFileName(name)
-	wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(dir, name, namelog)
+	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(dir, name, namelog)
 	// wp = transaction log file
 	// wa = actual file
 	if errp != nil {
@@ -130,7 +130,7 @@ func WriteChanneltoDisk(chSource chan []byte,
 	nbyteswritten := int64(0) // return nbyteswritten to chResult
 	for !closed {
 		select {
-		case b, ok := <-chSource: // capacity is > 1. Waits when chSource is empty. Reads when there is something.
+		case b, ok := <-chSource: // capacity is > 1. Waits only when chSource is empty. Reads when there is something.
 			if !ok { // ok=false means closed
 
 				closed = true
@@ -139,7 +139,7 @@ func WriteChanneltoDisk(chSource chan []byte,
 				if len(b) != 0 {
 
 					fmt.Printf("WRITES BYTES len(b) = %d\n", len(b))
-					successbytescount, err := fsdriver.AddBytesToFileInHunks(wa, wp, b, &destination)
+					successbytescount, err := fsdriver.AddBytesToFileInHunks(wa, wp, b, ver, &destination)
 					// whatIsInFile now holds last log record plus count bytes written.
 					nbyteswritten += int64(successbytescount)
 					if err != nil {
