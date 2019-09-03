@@ -33,6 +33,11 @@ type JsonFileStatus struct {
 	JsonResponse
 }
 
+//  RequestForlist defines how to ask for list of files.
+type RequestForFileList struct {
+	Filter string `json:"filter" form:"filter"`
+}
+
 // Debugprint to print Response
 func Debugprint(resp interface{}) {
 	switch v := resp.(type) {

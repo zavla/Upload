@@ -14,15 +14,21 @@ import (
 )
 
 const bindToAddress = "127.0.0.1:64000"
+
 //const bindToAddress = "1cprogrammer:8888"
 
 var (
 	errCantWriteLogFile = *errstr.NewError("uploadservermain", 0, "Can not start. Can't write to a log file.")
 )
+var storage string
 
 func main() {
 	logname := flag.String("log", "", "log file path and name.")
+	flag.StringVar(&storage, "storage", ".", "storage path for files")
+
 	flag.Parse()
+	uploadserver.Storage = storage
+
 	// setup log destination
 	var flog io.Writer // io.MultiWriter
 	var flogfile *os.File
@@ -50,6 +56,7 @@ func main() {
 		gin.RecoveryWithWriter(flog))
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
+	router.Handle("GET", "/list", uploadserver.GetFileList)
 
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{

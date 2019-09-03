@@ -55,6 +55,9 @@ var clientsstates map[string]stateOfFileUpload
 var usedfiles sync.Map
 var emptysha1 [20]byte
 
+// var holds path to file store for this instance
+var Storage string
+
 const constdirforfiles = "d:/temp/"
 
 // const bindToAddress = "127.0.0.1:64000"
@@ -597,7 +600,7 @@ func WaitForWriteChanResult(chWriteResult chan writeresult, expectednbytes int64
 }
 
 func GetPathWhereToStore() string {
-	return "./" //TODO(zavla): change per user?
+	return Storage //TODO(zavla): change per user?
 }
 
 func GetFileSha1(storagepath, name string) ([]byte, error) {
