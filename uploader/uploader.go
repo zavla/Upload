@@ -43,6 +43,8 @@ var jar cookiejar.Jar
 //const uploadServerURL = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
 const uploadServerURL = `http://127.0.0.1:64000/upload`
 
+//const uploadServerURL = `http://myapp/upload`
+
 // eoe = "exit on error"
 // args are pairs of key,value. Even number of args expected.
 func eoe(exit bool, err error, descr string, args ...interface{}) {

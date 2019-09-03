@@ -10,7 +10,8 @@ import (
 const KeysessionID = "sessionId"
 
 var (
-	ErrSeccessfullUpload = *errstr.NewError("uploadserver", 18, "Upload successfully completed.")
+	ErrSeccessfullUpload  = *errstr.NewError("ServerResponse", 1, "Upload successfully completed.")
+	ErrUploadIsNorAllowed = *errstr.NewError("ServerResponse", 2, "Upload is not allowed.")
 )
 
 type RequestForUpload struct {

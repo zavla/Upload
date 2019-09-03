@@ -4,6 +4,7 @@ import (
 	"Upload/errstr"
 	"encoding/binary"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -275,10 +276,18 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 			// add newbytes into actual file
 			from := i * lenhunk
 			to := from + curlen
+			log.Printf("wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset) == wa.WriteAt(newbytes[%d:%d], %d)", from, to, destinationrecord.Startoffset)
+			minlen := 16
+			if minlen > curlen {
+				minlen = curlen
+			}
+			log.Printf("newbytes[0:16] = %x", newbytes[from:from+minlen])
+
 			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)
 			if err != nil {
 				// write of current block (hunk) failed, not big deal.
 				// revert actual file, though it's not necessary, because log file doesn't have step2 record.
+				log.Printf("wa.Truncate(destinationrecord.Startoffset)=wa.Truncate(%d)", destinationrecord.Startoffset)
 				errFatal := wa.Truncate(destinationrecord.Startoffset)
 				if errFatal != nil { // can't truncate actual file.
 					return totalbyteswritten, errFatal
@@ -388,9 +397,10 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	default: // unknown version
 		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
 	}
-	// fromLog now has last correct offset == fromLog.Startoffset
+
+	// Here fromLog now has last correct offset == fromLog.Startoffset
 	if errlog != nil { // log(journal) file needs repair
-		// ReadCurrentStateFromPartialFile must return its offset of last correct record.
+		// ReadCurrentStateFromPartialFileVerX must return its offset of last correct record.
 
 		if errlog == errPartialFileReadingError { // can't do anything with journal file, even reading
 			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize), errForbidenToUpdateAFile // DO NOTHING with file
@@ -405,17 +415,16 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 			// here journal is repaired
 			// may continue
 		}
-		// TODO(zavla): what should return MauUpload?
+
 		// here journal file is in corrupted state
 		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()), errForbidenToUpdateAFile // error in log file blocks updates
 	}
 	if wastat.Size() == fromLog.FileSize && fromLog.Startoffset == fromLog.FileSize {
-		// TODO(zavla): check SHA1 of the actual file and delete journal
 		// the actual file is correct and completly uploaded, but log file still exists
 		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile // totaly correct file
 	}
 	if wastat.Size() > fromLog.FileSize { // actual file already bigger then expected! Shire error.
-		// TODO(zavla): store problemed file's journal somewhere in Db. Store SHA1 in Db.
+		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.", name, wastat.Size(), fromLog.Startoffset)
 		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile
 	}
 	if wastat.Size() == fromLog.Startoffset {

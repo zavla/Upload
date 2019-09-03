@@ -53,6 +53,7 @@ type stateOfFileUpload struct {
 var clientsstates map[string]stateOfFileUpload
 
 var usedfiles sync.Map
+var emptysha1 [20]byte
 
 const constdirforfiles = "d:/temp/"
 
@@ -74,21 +75,21 @@ func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 	defer close(chReciever)
 
 	blocklen := 3 * constrecieveblocklen
-	b := make([]byte, blocklen)
 	i := 0
 	for { // endless loop
 
-		n, err := c.Read(b) // usually reads Request.Body
+		b := make([]byte, blocklen) // must allocate for every read, else reads will overwrite previous b
+		n, err := c.Read(b)         // usually reads Request.Body
 		if err != nil && err != io.EOF {
 			//DEBUG!!!
-			fmt.Printf("endless recieve loop : i=%d, read error = %s\n", i, err)
+			log.Printf("endless recieve loop : i=%d, read error = %s\n", i, err)
 			return errConnectionReadError // or timeout?
 		}
 
 		if n > 0 {
 			chReciever <- b[:n]
 			//DEBUG!!!
-			fmt.Printf("endless recieve loop : i=%d send to chReciever n = %d\n", i, n)
+			log.Printf("endless recieve loop : i=%d send to chReciever n = %d\n", i, n)
 
 		}
 		if err == io.EOF {
@@ -138,8 +139,10 @@ func WriteChanneltoDisk(chSource chan []byte,
 			} else { // writes when chan is not empty
 				if len(b) != 0 {
 
-					fmt.Printf("WRITES BYTES len(b) = %d\n", len(b))
+					log.Printf("WRITES BYTES len(b) = %d to destination offset %d\n", len(b), destination.Startoffset)
 					successbytescount, err := fsdriver.AddBytesToFileInHunks(wa, wp, b, ver, &destination)
+					log.Printf("after AddBytesToFileInHunks destination offset %d\n", destination.Startoffset)
+
 					// whatIsInFile now holds last log record plus count bytes written.
 					nbyteswritten += int64(successbytescount)
 					if err != nil {
@@ -160,7 +163,7 @@ func WriteChanneltoDisk(chSource chan []byte,
 		} //select
 	} //for !closed (while input chan not closed)
 
-	//TODO: write to log file fmt.Println("WriteChanneltoDisk ended")
+	log.Println("WriteChanneltoDisk ended.")
 	return // ends gourouting
 }
 
@@ -224,7 +227,8 @@ func LogMsg(c *gin.Context, msg string) (ret Logline) {
 	ret.TimeStamp = time.Now()
 	ret.ClientIP = c.ClientIP()
 	ret.Path = c.Request.URL.Path + "?" + c.Request.URL.RawQuery
-	ret.ErrorMessage = msg
+	strSessionId := c.GetString(liteimp.KeysessionID)
+	ret.ErrorMessage = fmt.Sprintf("In session id %s: '%s'", strSessionId, msg)
 	return // named
 }
 
@@ -255,22 +259,27 @@ func ServeAnUpload(c *gin.Context) {
 		newsessionID := uuid.New().String()
 		log.Println(LogMsg(c, fmt.Sprintf("starts a new session %s", newsessionID)))
 		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "", "", false, true)
+
+		// c holds session id in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
 
 		RequestedAnUpload(c, newsessionID) // recieves new files only
+
 	} else {
 		// load session state
 		if state, found := clientsstates[strSessionId]; found {
 			//c.Error(fmt.Errorf("session continue %s", strSessionId))
 			if state.good {
-				log.Println(LogMsg(c, fmt.Sprintf("continue a session %s", strSessionId)))
+				log.Println(LogMsg(c, fmt.Sprintf("continue upload")))
+
+				// c holds session id in KeyValue pair
 				c.Set(liteimp.KeysessionID, strSessionId)
+
 				RequestedAnUploadContinueUpload(c, state) // continue upload
 				return
 			}
 
 		}
-		log.Println(LogMsg(c, fmt.Sprintf("clears a session %s", strSessionId)))
 
 		// stale state
 		delete(clientsstates, strSessionId)
@@ -283,45 +292,60 @@ func ServeAnUpload(c *gin.Context) {
 	}
 
 }
+
+// RequestedAnUploadContinueUpload continue to upload a non complete file.
+// expectfromclient is a state of the file
 func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFileUpload) {
 	name := expectfromclient.name
 	storagepath := expectfromclient.path
-	// sync.Map to prevent uploading the same file in parallel.
-	// Usedfiles is global for http server.
+
+	strSessionId := c.GetString(liteimp.KeysessionID)
+
+	// Uses sync.Map to prevent uploading the same file in concurrents http handlers.
+	// usedfiles is global for http server.
 	_, loaded := usedfiles.LoadOrStore(name, true)
 	if loaded {
 		// file is already busy at the moment
 		c.JSON(http.StatusConflict, gin.H{"error": errRequestedFileIsBusy.SetDetails("Requested filename is busy at the moment: %s", name)})
 		return
 	}
-	defer usedfiles.Delete(name) // clears sync.Map after http.Handler func exits.
 
-	// Create recieve channel to write bytes for this connection.
-	// chReciever expects bytes from io.Reader to be written to file.
+	// clears sync.Map after http.Handler func exits.
+	defer usedfiles.Delete(name)
+
+	// Creates reciever channel to hold read bytes in this connection.
+	// Bytes from chReciever will be written to file.
 	chReciever := make(chan []byte, 2)
-	// chWriteResult is used to send result of WriteChanneltoDisk goroutine.
+
+	// Channel chWriteResult is used to send back result from WriteChanneltoDisk goroutine.
 	chWriteResult := make(chan writeresult)
 
-	// can another client update the content of the file in between our requests?
-	// Get a struct with the file current size and state.
+	// Prevents another client update content of the file in between our requests.
+	// Gets a struct with the file current size and state.
 	whatIsInFile, err := fsdriver.MayUpload(expectfromclient.path, name)
 	if err != nil {
-		c.Error(err)
-		log.Println(LogMsg(c, fmt.Sprintf("upload forbidden in session %s", c.GetString(liteimp.KeysessionID))))
+		// Here err!=nil means upload is now allowed
+		delete(clientsstates, strSessionId)
 
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		c.Error(err)
+		log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+
+		c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
 		return
 
 	}
 
-	// waits from client again a json answer with fromClient.Startoffset = whatIsInFile.Startoffset+1
+	// This client request must have fromClient.Startoffset == whatIsInFile.Startoffset
 	var fromClient liteimp.QueryParamsToContinueUpload
+
+	// Client sends startoffset, count, filеname in URL parameters
 	err = c.ShouldBindQuery(&fromClient)
 	if err != nil {
-		// client didn't request with proper params
-		// We expecting URL parametres
+		// Сlient didn't request with proper params.
+		// We expecting URL parametres.
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		msgdetails := "" + string(jsonbytes)
+		//
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": errClientRequestShouldBindToJson.SetDetails("%s", msgdetails)})
 		return
@@ -344,26 +368,58 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			// update state of the file after failed upload
 			whatIsInFile, err := fsdriver.MayUpload(expectfromclient.path, name)
 			if err != nil {
-				c.Error(err)
+				// Here err!=nil means upload is now allowed
 
-				c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+				delete(clientsstates, strSessionId)
+
+				c.Error(err)
+				log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+
+				c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
 				return
 
 			}
-			// this will trigger another request from client
+			// This will trigger another request from client.
+			// Client must send rest of the file.
 			c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile))
 			return
 		}
-		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 
-	} else {
-		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
-		jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
-		msgdetails := "" + string(jsonbytes)
-		c.JSON(http.StatusBadRequest, gin.H{"error": errServerExpectsRestOfTheFile.SetDetails(msgdetails),
-			"whatIsInFile": whatIsInFile})
+		// SUCCESS!!!
+		// Next check fact sha1 with expected sha1 if it was given.
+		factsha1, err := GetFileSha1(storagepath, name)
+		if err != nil {
+			log.Println(LogMsg(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", name, err)))
+		}
+		wantsha1 := whatIsInFile.Sha1
+		if !bytes.Equal(wantsha1, emptysha1[:]) {
+			// we may check correctness
+
+			if !bytes.Equal(factsha1, wantsha1) {
+				// sha1 differs!!!
+				log.Println(LogMsg(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", wantsha1, factsha1)})
+				return
+			}
+		}
+
+		// Rename journal file. Add string representaion of sha1 to the journal filename.
+		namepart := fsdriver.CreatePartialFileName(name)
+		namepartnew := filepath.Join(storagepath, fmt.Sprintf("%s.sha1-%x", namepart, factsha1))
+		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+
+		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
+		return
 	}
 
+	// Client made wrong request
+	c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
+	delete(clientsstates, strSessionId)
+
+	jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
+	msgdetails := "" + string(jsonbytes)
+	c.JSON(http.StatusBadRequest, gin.H{"error": errServerExpectsRestOfTheFile.SetDetails("you need to specify URL parameters, %s", msgdetails)})
+	return
 }
 
 func RequestedAnUpload(c *gin.Context, strSessionId string) {
@@ -400,8 +456,13 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 	whatIsInFile, err := fsdriver.MayUpload(storagepath, name)
 	if err != nil {
 		c.Error(err)
-		LogMsg(c, fmt.Sprintf("denies upload in session %s", c.GetString(liteimp.KeysessionID)))
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+
+		delete(clientsstates, strSessionId)
+
+		log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+
+		c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
+
 		return
 
 	}
@@ -416,7 +477,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 			return // client should make a new request
 		}
 	}
-	strsha1 := c.GetHeader("sha1")
+	strsha1 := c.GetHeader("Sha1")
 
 	// create client state
 	clientsstates = make(map[string]stateOfFileUpload)
@@ -482,30 +543,37 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 
 			if !bytes.Equal(factsha1, bytessha1) {
 				// sha1 differs!!!
-				log.Println(LogMsg(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x. in session %s", bytessha1, factsha1, strSessionId)))
+				log.Println(LogMsg(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", bytessha1, factsha1)))
 				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", bytessha1, factsha1)})
 				return
 			}
 		}
-		namepart := fsdriver.CreatePartialFileName(name)
 
-		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, fmt.Sprintf("%s.%x", namepart, factsha1)))
+		//SUCCESS!!!
+		// Rename journal file. Add string representaion of sha1 to the journal filename.
+		namepart := fsdriver.CreatePartialFileName(name)
+		namepartnew := filepath.Join(storagepath, fmt.Sprintf("%s.sha1-%x", namepart, factsha1))
+
+		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 
 	}
 
-	// this is an existing file. We send a json with expected offsett and filesize size.
+	// Here we are when uploaded file already exist.
+	// We respond with a json with expected offsett and file size.
 
-	c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile)) // we responded with json
+	c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile))
 
-	//here we already have a sessionId, we expect the client to do one more request.
-	//state saved in a map, session key (liteimp.KeysessionID) is  in cookie
+	// We expect the client to do one more request with the rest of the file.
+	// Session State saved in a map, session key (liteimp.KeysessionID) is in cookie.
 
 }
 
-//rename WaitForWriteToFinish
+// WaitForWriteChanResult wait for the end of write operation.
+// Returns: ok == true when there was written expected count of bytes.
+// rename WaitForWriteToFinish
 func WaitForWriteChanResult(chWriteResult chan writeresult, expectednbytes int64) (retwriteresult writeresult, ok bool) {
 	// asks-waits chan for the result
 	nbyteswritten := int64(0) // returns
@@ -529,7 +597,7 @@ func WaitForWriteChanResult(chWriteResult chan writeresult, expectednbytes int64
 }
 
 func GetPathWhereToStore() string {
-	return "./" //TODO: change per user?
+	return "./" //TODO(zavla): change per user?
 }
 
 func GetFileSha1(storagepath, name string) ([]byte, error) {
@@ -538,6 +606,8 @@ func GetFileSha1(storagepath, name string) ([]byte, error) {
 	if err != nil {
 		return ret, err
 	}
+	defer f.Close()
+
 	h := sha1.New()
 	_, err = io.Copy(h, f)
 	if err != nil {
@@ -548,21 +618,3 @@ func GetFileSha1(storagepath, name string) ([]byte, error) {
 
 // To send a new file:
 // curl.exe -X GET http://127.0.0.1:64000/upload?"&"Filename="sendfile.rar" -T .\sendfile.rar
-// func main() {
-
-// 	router := gin.Default()
-// 	router.Handle("GET", "/upload", RequestedAnUpload)
-
-// 	//router.Run(bindToAddress)  timeouts needed
-// 	s := &http.Server{
-// 		Addr:              bindToAddress,
-// 		Handler:           router,
-// 		ReadTimeout:       30 * time.Second,
-// 		WriteTimeout:      30 * time.Second,
-// 		ReadHeaderTimeout: 60 * time.Second,
-// 		//MaxHeaderBytes: 1000,
-// 	}
-// 	s.ListenAndServe()
-// 	fmt.Println("Uploadserver main end.")
-
-// }

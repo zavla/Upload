@@ -2,6 +2,7 @@ package fsdriver
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -228,4 +229,47 @@ func ReadCurrentStateFromPartialFileVer1(ver uint32, wp io.Reader) (retState Fil
 		// incorrect header
 		return retState, correctrecordoffset, errPartialFileVersionTagReadError
 	}
+}
+
+func DecodePartialFile(r io.Reader, w io.Writer) error {
+	ver, err := GetLogFileVersion(r)
+	fmt.Fprintf(w, "File version: %x\n", ver)
+	if err != nil {
+		return err
+	}
+
+	err = DecodePartialFileVer2(r, w)
+	return err
+
+}
+
+func DecodePartialFileVer2(r io.Reader, w io.Writer) error {
+	startstruct := StartStructVer2{}
+	record := PartialFileInfoVer2{}
+
+	err := binary.Read(r, binary.LittleEndian, &startstruct)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%#v\n", startstruct)
+
+	for {
+		err := binary.Read(r, binary.LittleEndian, &record)
+		if err == io.EOF {
+			return nil
+		}
+		if err == io.ErrUnexpectedEOF {
+			// there are some bytes
+			b := make([]byte, binary.Size(record))
+			r.Read(b)
+			fmt.Fprintf(w, "%x\n", b)
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%#v\n", record)
+
+	}
+
 }

@@ -14,6 +14,7 @@ import (
 )
 
 const bindToAddress = "127.0.0.1:64000"
+//const bindToAddress = "1cprogrammer:8888"
 
 var (
 	errCantWriteLogFile = *errstr.NewError("uploadservermain", 0, "Can not start. Can't write to a log file.")
