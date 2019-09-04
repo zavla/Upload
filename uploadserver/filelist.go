@@ -2,6 +2,9 @@ package uploadserver
 
 import (
 	"Upload/liteimp"
+	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +12,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type smallinf struct {
+	Name string
+	Size int64
+}
 
 func GetFileList(c *gin.Context) {
 	storagepath := GetPathWhereToStore()
@@ -31,11 +39,26 @@ func GetFileList(c *gin.Context) {
 		isnamefilter = true
 
 	}
-	type smallinf struct {
-		Name string
-		Size int64
+	nameslist := fillnameslist(storagepath, isnamefilter, reg)
+	tmpl, err := template.ParseFiles(filepath.Join(RunningFromDir, "htmltemplates/filelist.html"))
+	if err != nil {
+		log.Printf("%s", err)
+		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("can't parse html template ./htmltemplates/filelist.html : %s", err)})
+
+		return
 	}
-	listname := make([]smallinf, 0, 200)
+	err = tmpl.Execute(c.Writer, nameslist)
+	if err != nil {
+		log.Printf("%s", err)
+		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("html template failed to execute. : %s", err)})
+		return
+	}
+
+	return
+}
+
+func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []smallinf {
+	nameslist := make([]smallinf, 0, 200)
 	filepath.Walk(storagepath, func(path string, info os.FileInfo, errinfile error) error {
 		if info.IsDir() && path != "." {
 			return filepath.SkipDir
@@ -43,15 +66,15 @@ func GetFileList(c *gin.Context) {
 		if isnamefilter {
 			is := reg.FindString(path)
 			if is == "" {
-				return filepath.SkipDir
+				return nil // next file please
 			}
 		}
-		listname = append(listname, smallinf{
+		nameslist = append(nameslist, smallinf{
 			Name: info.Name(),
 			Size: info.Size(),
 		})
 		return nil
 	})
-	c.JSON(http.StatusOK, listname)
-	return
+	return nameslist
+
 }

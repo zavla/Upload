@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,6 +58,7 @@ var emptysha1 [20]byte
 
 // var holds path to file store for this instance
 var Storage string
+var RunningFromDir string
 
 const constdirforfiles = "d:/temp/"
 
@@ -408,7 +410,7 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.CreatePartialFileName(name)
-		namepartnew := filepath.Join(storagepath, fmt.Sprintf("%s.sha1-%x", namepart, factsha1))
+		namepartnew := filepath.Join(storagepath, GetFinalJournalFileName(namepart, factsha1))
 		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
@@ -555,7 +557,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 		//SUCCESS!!!
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.CreatePartialFileName(name)
-		namepartnew := filepath.Join(storagepath, fmt.Sprintf("%s.sha1-%x", namepart, factsha1))
+		namepartnew := filepath.Join(storagepath, GetFinalJournalFileName(namepart, factsha1))
 
 		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 
@@ -617,6 +619,11 @@ func GetFileSha1(storagepath, name string) ([]byte, error) {
 		return ret, err
 	}
 	return h.Sum(nil), nil
+}
+
+func GetFinalJournalFileName(namepart string, factsha1 []byte) string {
+	nopartial := strings.Replace(namepart, ".partialfile", "", 1)
+	return fmt.Sprintf("%s.sha1-%x", nopartial, factsha1)
 }
 
 // To send a new file:

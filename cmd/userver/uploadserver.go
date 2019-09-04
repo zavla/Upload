@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,6 +50,14 @@ func main() {
 	}
 	log.SetOutput(flog)
 	defer flogfile.Close()
+	// here we have log
+	// where are we
+	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Printf("Can't find starting directory. %s", err)
+		return
+	}
+	uploadserver.RunningFromDir = rundir
 
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex

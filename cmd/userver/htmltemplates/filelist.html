@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <style >
+        .table {
+            color:grey
+        }
+        span.cleft {
+            min-width: 50%;
+            max-width: 70%;
+            float: left;
+        }
+        span.cright {
+            width: 4em;
+            
+        }
+    </style>
+    <body>
+        <div class="table">
+            {{range .}}
+            <span class="cleft"><a href="/download/{{.Name}}">{{.Name}}</a></span>
+            <span class="cright"><p class="line">{{.Size}}</p></span>
+            {{end}}
+        </div>
+    </body>
+</html>
