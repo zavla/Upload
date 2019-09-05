@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -18,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
@@ -114,7 +114,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
 	}
 
-	waitBeforRetrySec := time.Duration(30)
+	waitBeforRetrySec := time.Duration(10)
 
 	ret := errNumberOfRetriesExceeded // func return value
 	// cycle for some errors that can be tolarated
@@ -124,14 +124,14 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 		// makes the first request, without cookie or makes a retry request with sessionID in cookie on steps 2,3...
 		resp, err := cli.Do(req)       // sends a file f in the body,  closes file f
 		if err != nil || resp == nil { // response may be nil when transport fails with timeout (timeout while i am debugging the upload server)
-			ret = *errCantConnectToServer.SetDetailsSubErr(err, "uploadServerURL=%s", req.URL)
-			log.Printf("Can't connect to server: %s", ret)
+			ret = *errCantConnectToServer.SetDetailsSubErr(err, "server %s", req.URL)
+			log.Printf("%s", ret)
 			time.Sleep(waitBeforRetrySec * time.Second) // waits
 
 			// opens file again
 			f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 			if err != nil {
-				ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "Can't open the file: %s", fullfilename)
+				ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "file %s", fullfilename)
 				log.Printf("%s", ret)
 				return ret
 			}
@@ -141,10 +141,9 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 
 		resp.Body.Close()
 
-		log.Printf("Connected to: %s", req.URL)
+		log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
 			resp.Body.Close()
-			log.Printf("SendAFile recieved resp.StatusCode == http.StatusAccepted: %s", req.URL)
 
 			return nil // upload completed
 		}
@@ -158,7 +157,6 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 		}
 
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict
-			log.Printf("in the if resp.StatusCode == http.StatusConflict { // we expect StatusConflict\n")
 			var bodyjson liteimp.JsonFileStatus
 			// server responded "a file already exists"
 			fromserverjson, err, debugbytes := UnmarshalBody(resp) // unmarshals to JsonFileStatus,closes body
@@ -208,15 +206,6 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 
 }
 
-// RequestWithBody do a http.Request on http.Client, adds jsoned value to bodybytes.
-func RequestWithBody(cli *http.Client, req *http.Request, value liteimp.JsonFileStatus, bodybytes *bytes.Buffer) (resp *http.Response, err error) {
-	b, err := json.Marshal(value)
-	bodybytes.Write(b)
-	req.Body = ioutil.NopCloser(bodybytes)
-	resp, err = cli.Do(req)
-	return //named
-}
-
 func UnmarshalBody(resp *http.Response) (value *liteimp.JsonFileStatus, err error, debugbytes []byte) {
 	value = &liteimp.JsonFileStatus{} // struct
 	if resp.ContentLength == 0 {
@@ -242,6 +231,7 @@ func UnmarshalBody(resp *http.Response) (value *liteimp.JsonFileStatus, err erro
 func main() {
 	logname := flag.String("log", "", "log file path and name.")
 	file := flag.String("file", "", "a file you want to upload")
+	dirtomonitor := flag.String("dir", "", "a directory which to monitor for new files to upload")
 	flag.Parse()
 	if len(os.Args) == 0 {
 		flag.PrintDefaults()
@@ -273,11 +263,56 @@ func main() {
 	// from hereafter use log for messages
 	log.SetOutput(flog)
 
+	// walk a dir
+
+	nameslist := make([]string, 0, 200)
+	if *dirtomonitor != "" {
+		nameslist = GetFilenamesThatNeedUpload(*dirtomonitor, nameslist)
+	}
+	if *file != "" {
+		nameslist = append(nameslist, *file)
+	}
+	// TODO(zavla): import "github.com/fsnotify/fsnotify"
+	// channel with filenames
+	chNames := make(chan string, 2)
+
+	go puttoqueue(chNames, nameslist)
+	runWorkers(chNames)
+	log.Println("uploader exited.")
+}
+func puttoqueue(ch chan string, sl []string) {
+	for _, name := range sl {
+
+		ch <- name
+	}
+	close(ch) // range loop will read all elements from buffered channel if they are there
+	return
+}
+func runWorkers(ch chan string) {
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+
+		go worker(&wg, ch)
+	}
+	wg.Wait()
+
+}
+func worker(wg *sync.WaitGroup, ch chan string) {
+	defer wg.Done()
+
+	for name := range ch {
+		PrepareAndSendAFile(name)
+	}
+	return
+}
+func PrepareAndSendAFile(filename string) {
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
-	fullfilename := filepath.Clean(*file)
-	// TODO(zavla): compute SHA1 of a file
+	fullfilename := filepath.Clean(filename)
+
+	//compute SHA1 of a file
 	hsha1, err := GetFileSHA1(fullfilename)
 	if err != nil {
 		log.Printf("Can't read file. %s", err)
@@ -296,10 +331,10 @@ func main() {
 		return
 	}
 	if err == errServerForbiddesUpload {
-		log.Printf("Server do not allow file upload")
+		log.Printf("Server do not allow this file upload: %s", fullfilename)
 		return
 	}
-	log.Println("uploader exited.")
+	return
 }
 
 func MarkFileAsUploaded(fullfilename string) error {
@@ -317,7 +352,7 @@ func MarkFileAsUploaded(fullfilename string) error {
 	if attr&windows.FILE_ATTRIBUTE_ARCHIVE != 0 {
 		err := windows.SetFileAttributes(ptrFilenameUint16, attr^windows.FILE_ATTRIBUTE_ARCHIVE)
 		if err != nil {
-			log.Printf("Can't set file attribute: %s", err)
+			log.Printf("Can't set file archive attribute to 0: %s", err)
 			return err
 		}
 	}
@@ -325,8 +360,19 @@ func MarkFileAsUploaded(fullfilename string) error {
 
 }
 
+func GetArchiveAttribute(fullfilename string) bool {
+	ptrFilename, err := windows.UTF16PtrFromString(fullfilename)
+	if err != nil {
+		return false
+	}
+	attrs, err := windows.GetFileAttributes(ptrFilename)
+	if err != nil {
+		return false
+	}
+	return (attrs & windows.FILE_ATTRIBUTE_ARCHIVE) != 0
+}
 func GetFileSHA1(fullfilename string) (hash.Hash, error) {
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
 	if err != nil {
 
 		return nil, err
@@ -336,4 +382,20 @@ func GetFileSHA1(fullfilename string) (hash.Hash, error) {
 		return nil, err
 	}
 	return h, nil
+}
+
+func GetFilenamesThatNeedUpload(dir string, nameslist []string) []string {
+
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil // next file please
+		}
+		// TODO(zavla): decide how to store "archive" attribute in linux
+		isarchiveset := GetArchiveAttribute(path)
+		if isarchiveset {
+			nameslist = append(nameslist, path)
+		}
+		return nil
+	})
+	return nameslist
 }

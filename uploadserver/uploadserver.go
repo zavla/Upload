@@ -622,7 +622,7 @@ func GetFileSha1(storagepath, name string) ([]byte, error) {
 }
 
 func GetFinalJournalFileName(namepart string, factsha1 []byte) string {
-	nopartial := strings.Replace(namepart, ".partialfile", "", 1)
+	nopartial := strings.Replace(namepart, ".partialinfo", "", 1)
 	return fmt.Sprintf("%s.sha1-%x", nopartial, factsha1)
 }
 
