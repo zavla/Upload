@@ -5,7 +5,6 @@ import (
 	"Upload/fsdriver"
 	"Upload/liteimp"
 	"bytes"
-	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -106,17 +105,17 @@ func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 
 }
 
-// WriteChanneltoDisk runs in background as a goroutine. Waits for input bytes in input chan.
+// writeChanTo runs in background as a goroutine. Waits for input bytes in input chan.
 // Adds bytes[] to a file, using transaction log file.
 // Closes files at the return.
-func WriteChanneltoDisk(chSource chan []byte,
+func writeChanTo(chSource chan []byte,
 	chResult chan<- writeresult,
-	dir, name string,
+	storagepath, name string,
 	destination fsdriver.PartialFileInfo) {
 
 	// to begin open files
-	namelog := fsdriver.CreatePartialFileName(name)
-	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(dir, name, namelog)
+	namelog := fsdriver.GetPartialJournalFileName(name)
+	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(storagepath, name, namelog)
 	// wp = transaction log file
 	// wa = actual file
 	if errp != nil {
@@ -172,8 +171,10 @@ func WriteChanneltoDisk(chSource chan []byte,
 	return // ends gourouting
 }
 
-// StartWriteStartRecieveAndWait
-func RecieveAndWriteAndWait(c_Request_Body io.ReadCloser,
+// startWriteStartRecieveAndWait runs writing G, runs recieving G, and waits for them to complete.
+// Analyses returns from both Gs.
+// Returns error from reciver G and error from writer G.
+func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
 	chReciever chan []byte,
 	chWriteResult chan writeresult,
 	constdirforfiles, name string,
@@ -190,14 +191,14 @@ func RecieveAndWriteAndWait(c_Request_Body io.ReadCloser,
 	}
 
 	// Starts goroutine in background for write operations for this connection.
-	go WriteChanneltoDisk(chReciever, chWriteResult, constdirforfiles, name, whatwhere)
+	go writeChanTo(chReciever, chWriteResult, constdirforfiles, name, whatwhere)
 
 	// Reciever works in current thread, sends bytes to chReciever.
 	// Reciever may end with error, by timeout with error, or by EOF with nil error.
 	errRecieve := RecieveAndSendToChan(c_Request_Body, chReciever) // exits when error or EOF
 
 	// here reciever has ended. We wait for write G to complete.
-	writeresult, ok := WaitForWriteChanResult(chWriteResult, expectedcount) // waits for the end of writing
+	writeresult, ok := waitForWriteToFinish(chWriteResult, expectedcount) // waits for the end of writing
 
 	// here ok=true means we have written the whole file.
 	if ok && expectedcount == writeresult.count {
@@ -209,7 +210,9 @@ func RecieveAndWriteAndWait(c_Request_Body io.ReadCloser,
 
 }
 
-func ConvertFileStateToJsonFileStatus(state fsdriver.FileState) *liteimp.JsonFileStatus {
+// convertFileStateToJsonFileStatus converts struct FileState to a json representation with
+// exported liteimp.JsonFileStatus.
+func convertFileStateToJsonFileStatus(state fsdriver.FileState) *liteimp.JsonFileStatus {
 	return &liteimp.JsonFileStatus{
 		JsonResponse: liteimp.JsonResponse{
 			Startoffset: state.Startoffset,
@@ -222,8 +225,8 @@ type Logline struct {
 	gin.LogFormatterParams
 }
 
-// logParams mimics defaultLogger format log line
-func LogMsg(c *gin.Context, msg string) (ret Logline) {
+// logline mimics gin defaultLogger to format a log line.
+func logline(c *gin.Context, msg string) (ret Logline) {
 	ret = Logline{gin.LogFormatterParams{
 		Request: c.Request,
 		IsTerm:  false,
@@ -262,25 +265,25 @@ func ServeAnUpload(c *gin.Context) {
 
 		//generate new cookie
 		newsessionID := uuid.New().String()
-		log.Println(LogMsg(c, fmt.Sprintf("starts a new session %s", newsessionID)))
+		log.Println(logline(c, fmt.Sprintf("starts a new session %s", newsessionID)))
 		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "", "", false, true)
 
 		// c holds session id in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
 
-		RequestedAnUpload(c, newsessionID) // recieves new files only
+		requestedAnUpload(c, newsessionID) // recieves new files only
 
 	} else {
 		// load session state
 		if state, found := clientsstates[strSessionId]; found {
 			//c.Error(fmt.Errorf("session continue %s", strSessionId))
 			if state.good {
-				log.Println(LogMsg(c, fmt.Sprintf("continue upload")))
+				log.Println(logline(c, fmt.Sprintf("continue upload")))
 
 				// c holds session id in KeyValue pair
 				c.Set(liteimp.KeysessionID, strSessionId)
 
-				RequestedAnUploadContinueUpload(c, state) // continue upload
+				requestedAnUploadContinueUpload(c, state) // continue upload
 				return
 			}
 
@@ -298,9 +301,10 @@ func ServeAnUpload(c *gin.Context) {
 
 }
 
-// RequestedAnUploadContinueUpload continue to upload a non complete file.
-// expectfromclient is a state of the file
-func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFileUpload) {
+// requestedAnUploadContinueUpload continues an upload of a partially uploaded (not complete) file.
+// Expects in request from client a liteimp.QueryParamsToContinueUpload with data
+// correspondend to server's state of the file.
+func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFileUpload) {
 	name := expectfromclient.name
 	storagepath := expectfromclient.path
 
@@ -333,7 +337,7 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		delete(clientsstates, strSessionId)
 
 		c.Error(err)
-		log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+		log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
 
 		c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
 		return
@@ -358,7 +362,7 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
 		// client sends propper rest of the file
-		errreciver, writeresult := RecieveAndWriteAndWait(c.Request.Body,
+		errreciver, writeresult := startWriteStartRecieveAndWait(c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -378,7 +382,7 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 				delete(clientsstates, strSessionId)
 
 				c.Error(err)
-				log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+				log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
 
 				c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
 				return
@@ -386,15 +390,15 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			}
 			// This will trigger another request from client.
 			// Client must send rest of the file.
-			c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile))
+			c.JSON(http.StatusConflict, *convertFileStateToJsonFileStatus(whatIsInFile))
 			return
 		}
 
 		// SUCCESS!!!
 		// Next check fact sha1 with expected sha1 if it was given.
-		factsha1, err := GetFileSha1(storagepath, name)
+		factsha1, err := fsdriver.GetFileSha1(storagepath, name)
 		if err != nil {
-			log.Println(LogMsg(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", name, err)))
+			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", name, err)))
 		}
 		wantsha1 := whatIsInFile.Sha1
 		if !bytes.Equal(wantsha1, emptysha1[:]) {
@@ -402,15 +406,15 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 
 			if !bytes.Equal(factsha1, wantsha1) {
 				// sha1 differs!!!
-				log.Println(LogMsg(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
+				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
 				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", wantsha1, factsha1)})
 				return
 			}
 		}
 
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
-		namepart := fsdriver.CreatePartialFileName(name)
-		namepartnew := filepath.Join(storagepath, GetFinalJournalFileName(namepart, factsha1))
+		namepart := fsdriver.GetPartialJournalFileName(name)
+		namepartnew := filepath.Join(storagepath, getFinalNameOfJournalFile(namepart, factsha1))
 		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
@@ -427,7 +431,10 @@ func RequestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 	return
 }
 
-func RequestedAnUpload(c *gin.Context, strSessionId string) {
+// requestedAnUpload checks request params and recieves a new file.
+// If file already exists requestAnUpload responds with a json liteimp.JsonFileStatus.
+// We expect the client to do one more request with the rest of the file.
+func requestedAnUpload(c *gin.Context, strSessionId string) {
 
 	var req liteimp.RequestForUpload
 	err := c.ShouldBindQuery(&req)
@@ -464,7 +471,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 
 		delete(clientsstates, strSessionId)
 
-		log.Println(LogMsg(c, fmt.Sprintf("upload is not allowed")))
+		log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
 
 		c.JSON(http.StatusForbidden, gin.H{"error": liteimp.ErrUploadIsNorAllowed.SetDetails("filename %s", name)})
 
@@ -491,7 +498,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 		good:       true,
 		name:       name,
 		path:       storagepath,
-		filestatus: *ConvertFileStateToJsonFileStatus(whatIsInFile),
+		filestatus: *convertFileStateToJsonFileStatus(whatIsInFile),
 	}
 
 	// Create recieve channel to write bytes for this connection.
@@ -508,7 +515,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 			bytessha1 = make([]byte, hex.DecodedLen(len(strsha1)))
 			_, err := hex.Decode(bytessha1, []byte(strsha1))
 			if err != nil {
-				log.Println(LogMsg(c, fmt.Sprintf("string representation of sha1 %s is invalid", strsha1)))
+				log.Println(logline(c, fmt.Sprintf("string representation of sha1 %s is invalid", strsha1)))
 			}
 		}
 		// next fill a header of journal file
@@ -518,7 +525,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 			return
 		}
 		// next: recive and put to channel, read from this channel and write, wait for end of write operation
-		errreciver, writeresult := RecieveAndWriteAndWait(c.Request.Body,
+		errreciver, writeresult := startWriteStartRecieveAndWait(c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -542,13 +549,13 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 		}
 		// next check sha1
 
-		factsha1, err := GetFileSha1(storagepath, name)
+		factsha1, err := fsdriver.GetFileSha1(storagepath, name)
 		if bytessha1 != nil {
 			// we may check correctness
 
 			if !bytes.Equal(factsha1, bytessha1) {
 				// sha1 differs!!!
-				log.Println(LogMsg(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", bytessha1, factsha1)))
+				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", bytessha1, factsha1)))
 				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", bytessha1, factsha1)})
 				return
 			}
@@ -556,8 +563,8 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 
 		//SUCCESS!!!
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
-		namepart := fsdriver.CreatePartialFileName(name)
-		namepartnew := filepath.Join(storagepath, GetFinalJournalFileName(namepart, factsha1))
+		namepart := fsdriver.GetPartialJournalFileName(name)
+		namepartnew := filepath.Join(storagepath, getFinalNameOfJournalFile(namepart, factsha1))
 
 		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 
@@ -569,17 +576,16 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 	// Here we are when uploaded file already exist.
 	// We respond with a json with expected offsett and file size.
 
-	c.JSON(http.StatusConflict, *ConvertFileStateToJsonFileStatus(whatIsInFile))
+	c.JSON(http.StatusConflict, *convertFileStateToJsonFileStatus(whatIsInFile))
 
 	// We expect the client to do one more request with the rest of the file.
 	// Session State saved in a map, session key (liteimp.KeysessionID) is in cookie.
 
 }
 
-// WaitForWriteChanResult wait for the end of write operation.
-// Returns: ok == true when there was written expected count of bytes.
-// rename WaitForWriteToFinish
-func WaitForWriteChanResult(chWriteResult chan writeresult, expectednbytes int64) (retwriteresult writeresult, ok bool) {
+// waitForWriteToFinish waits for the end of write operation.
+// Returns: ok == true when there was written an expected count of bytes.
+func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) (retwriteresult writeresult, ok bool) {
 	// asks-waits chan for the result
 	nbyteswritten := int64(0) // returns
 	ok = false                // returns
@@ -605,23 +611,8 @@ func GetPathWhereToStore() string {
 	return Storage //TODO(zavla): change per user?
 }
 
-func GetFileSha1(storagepath, name string) ([]byte, error) {
-	var ret []byte
-	f, err := os.Open(filepath.Join(storagepath, name))
-	if err != nil {
-		return ret, err
-	}
-	defer f.Close()
-
-	h := sha1.New()
-	_, err = io.Copy(h, f)
-	if err != nil {
-		return ret, err
-	}
-	return h.Sum(nil), nil
-}
-
-func GetFinalJournalFileName(namepart string, factsha1 []byte) string {
+// getFinalNameOfJournalFile used to rename journal file when upload successfully completes.
+func getFinalNameOfJournalFile(namepart string, factsha1 []byte) string {
 	nopartial := strings.Replace(namepart, ".partialinfo", "", 1)
 	return fmt.Sprintf("%s.sha1-%x", nopartial, factsha1)
 }

@@ -111,7 +111,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 	// here goes checks
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ver, err := GetLogFileVersion(tt.args.wp)
+			ver, err := GetJournalFileVersion(tt.args.wp)
 			if err != nil {
 				t.Errorf("version reading error %s", err)
 				return
@@ -130,10 +130,10 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 
 			switch ver {
 			case structversion1:
-				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFileVer1(structversion1, tt.args.wp)
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromJournalVer1(structversion1, tt.args.wp)
 
 			case structversion2:
-				gotRetState, offsetinjournal, err = ReadCurrentStateFromPartialFileVer2(structversion2, tt.args.wp)
+				gotRetState, offsetinjournal, err = ReadCurrentStateFromJournalVer2(structversion2, tt.args.wp)
 			default:
 				t.Errorf("unexpected ver in file %x", ver)
 				return

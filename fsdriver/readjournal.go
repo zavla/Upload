@@ -6,9 +6,11 @@ import (
 	"io"
 )
 
-// for future support of journal version change
+// ReadCurrentStateFromJournalVer2 reads special version of journal file.
+// Check correctness of journal.
+// Every change to format of journal file uses its own func.
 // TODO(zavla): may be use protobuf to store journal records
-func ReadCurrentStateFromPartialFileVer2(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
+func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 
 	var startstruct StartStructVer2
 	var headersize = int64(binary.Size(StartStructVer2{})) //depends on header version
@@ -121,7 +123,9 @@ func ReadCurrentStateFromPartialFileVer2(ver uint32, wp io.Reader) (retState Fil
 
 // ReadCurrentStateFromPartialFile reads log(journal) file.
 // It returns last correct log record.
-func ReadCurrentStateFromPartialFileVer1(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
+// Check correctness of journal.
+// Every change to format of journal file uses its own func.
+func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 
 	var startstruct StartStructVer1
 	var headersize = int64(binary.Size(StartStructVer1{})) //depends on header version
@@ -232,7 +236,7 @@ func ReadCurrentStateFromPartialFileVer1(ver uint32, wp io.Reader) (retState Fil
 }
 
 func DecodePartialFile(r io.Reader, w io.Writer) error {
-	ver, err := GetLogFileVersion(r)
+	ver, err := GetJournalFileVersion(r)
 	fmt.Fprintf(w, "File version: %x\n", ver)
 	if err != nil {
 		return err

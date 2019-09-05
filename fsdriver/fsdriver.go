@@ -2,6 +2,7 @@ package fsdriver
 
 import (
 	"Upload/errstr"
+	"crypto/sha1"
 	"encoding/binary"
 	"io"
 	"log"
@@ -167,13 +168,13 @@ func NewStartStruct() *StartStruct {
 //---------------------------------
 // GetLogFileName returns a log filename.
 // TODO: rename GetLogFileName
-func CreatePartialFileName(name string) string {
+func GetPartialJournalFileName(name string) string {
 	return name + ".partialinfo"
 }
 
 //rename to CreateNewLogFile
 func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) error {
-	namepart := CreatePartialFileName(name)
+	namepart := GetPartialJournalFileName(name)
 	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0)
 	if err != nil {
 		return errPartialFileWritingError
@@ -216,7 +217,7 @@ func OpenJournalFile(dir, name string) (*os.File, uint32, error) {
 	if err != nil {
 		return f, 0, err
 	}
-	ver, err := GetLogFileVersion(f)
+	ver, err := GetJournalFileVersion(f)
 	if err != nil {
 		// do not seek END on error
 		return f, 0, err
@@ -268,7 +269,7 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 		if curlen > 0 {
 			// add step1 into journal = "write begin"
 			destinationrecord.Count = int64(curlen)
-			err := AddToPartialFileInfo(wp, startedwriting, ver, *destinationrecord)
+			err := addRecordToJournalFile(wp, startedwriting, ver, *destinationrecord)
 			if err != nil {
 				return totalbyteswritten, err
 			}
@@ -298,7 +299,7 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 			// add step2 into journal = "write end"
 			// whatIsInFile.Startoffset looks like transaction number
 			destinationrecord.Count = int64(nhavewritten)
-			err = AddToPartialFileInfo(wp, successwriting, ver, *destinationrecord)
+			err = addRecordToJournalFile(wp, successwriting, ver, *destinationrecord)
 			if err != nil {
 				destinationrecord.Count = 0
 				return totalbyteswritten, err // log file failer. (free disk space for e.x.)
@@ -311,8 +312,8 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 	return totalbyteswritten, nil
 }
 
-// AddToPartialFileInfo writes binary representation of PartialFileInfo into log file.
-func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, ver uint32, info PartialFileInfo) error {
+// addRecordToJournalFile writes binary representation of PartialFileInfo into log file.
+func addRecordToJournalFile(pfi io.Writer, step CurrentAction, ver uint32, info PartialFileInfo) error {
 	// ver is a journal file version
 	// PartialFileInfo is always can hold old versions, we cast it downto an old version if @ver is not the latest version
 	info.Action = step
@@ -334,7 +335,10 @@ func AddToPartialFileInfo(pfi io.Writer, step CurrentAction, ver uint32, info Pa
 	}
 	return nil
 }
-func GetLogFileVersion(wp io.Reader) (uint32, error) {
+
+// GetJournalFileVersion returns version of a journal file.
+// wp current pointer moved forward by uint32 bytes.
+func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 	var ret uint32
 	// what is the version of log file?
 
@@ -352,85 +356,117 @@ func GetLogFileVersion(wp io.Reader) (uint32, error) {
 	return ret, nil // supported version
 }
 
-//rename GetFileStatus
+// MayUpload decides if this file may be overwritten.
+// It looks for correspondent journal file for this file,
+// and use it to get a file state of the file being uploaded.
 func MayUpload(storagepath string, name string) (FileState, error) {
 
-	namepart := CreatePartialFileName(name)
-	dir := storagepath
-	wa, err := OpenRead(dir, name)
-	if err != nil {
+	namepart := GetPartialJournalFileName(name)
 
-		return *NewFileState(0, nil, 0), nil // no file, we may upload
+	wa, err := OpenRead(storagepath, name)
+	if err != nil {
+		// no uploaded file, client may upload
+		return *NewFileState(0, nil, 0), nil
 
 	}
 	defer wa.Close()
-	wastat, err := os.Stat(filepath.Join(dir, name))
-	if err != nil { // can't get actual file properties
+	wastat, err := os.Stat(filepath.Join(storagepath, name))
+	if err != nil {
+		// can't get actual file properties, error
 		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
 	}
 
 	// reads log(journal) file
-	wp, err := OpenRead(dir, namepart)
-	if err != nil { // != nil means no log file exists, this means actual file is already uploaded.
-		// no info about actual file fullness
+	wp, err := OpenRead(storagepath, namepart)
+	if err != nil {
+		// != nil means no log file exists, this means actual file is already uploaded
+		// (otherwise it has a journal file near)
+		// or there is a reading error
 
 		return *NewFileState(wastat.Size(), nil, wastat.Size()), errForbidenToUpdateAFile
 	}
 	defer wp.Close()
 
-	ver, err := GetLogFileVersion(wp)
+	ver, err := GetJournalFileVersion(wp)
 	if err != nil { // unsupported version or read error
 		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
 	}
 
-	//readfuncs := make(map[uint32]func(io.Reader) (FileState, int64, error))
 	var fromLog FileState
 	var journaloffset int64
 	var errlog error
+
 	// here log(journal) file already exists
+	// every ReadCurrentStateFromJournalVerX must return its offset of last correct journal record.
 	switch ver {
 	case structversion1:
-		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFileVer1(ver, wp) // here we read journal file
+		// here we read journal file
+		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer1(ver, wp)
 
 	case structversion2:
-		fromLog, journaloffset, errlog = ReadCurrentStateFromPartialFileVer2(ver, wp) // here we read journal file
+		// here we read journal file
+		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer2(ver, wp)
 	default: // unknown version
 		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
 	}
 
-	// Here fromLog now has last correct offset == fromLog.Startoffset
-	if errlog != nil { // log(journal) file needs repair
-		// ReadCurrentStateFromPartialFileVerX must return its offset of last correct record.
+	if errlog == errPartialFileReadingError { // can't do anything with journal file, even reading
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize), errForbidenToUpdateAFile // DO NOTHING with file
+	}
 
-		if errlog == errPartialFileReadingError { // can't do anything with journal file, even reading
-			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize), errForbidenToUpdateAFile // DO NOTHING with file
-		}
-		// simple case is when actual file size == fromLog.startoffset and upload not completed
+	// Here struct fromLog has last correct offset of the file being uploaded, fromLog.Startoffset.
+	if errlog != nil {
+		// log(journal) file needs repair.
+		// simple case is when actual file size == fromLog.startoffset
+		// It is when an upload did not complete.
 		if fromLog.FileSize != 0 && // log at least has filesize
-			fromLog.Startoffset == wastat.Size() && // offset is equal to actual size
+			fromLog.Startoffset == wastat.Size() && // offset is equal to actual file size
 			fromLog.FileSize > fromLog.Startoffset { // upload not completed yet
-			if err := wp.Truncate(journaloffset); err != nil {
-				return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile // can't repair journal
+			// may be that uploadserver was shutted down in the process of adding to journal file
+			// try to repair journal file to lcontinue upload
+			if err := wp.Truncate(journaloffset); err == nil { // ==
+				// here journal is repaired
+				// may continue
+				return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
 			}
-			// here journal is repaired
-			// may continue
 		}
 
-		// here journal file is in corrupted state
+		// here journal file is considdered to be in corrupted state
 		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()), errForbidenToUpdateAFile // error in log file blocks updates
 	}
 	if wastat.Size() == fromLog.FileSize && fromLog.Startoffset == fromLog.FileSize {
-		// the actual file is correct and completly uploaded, but log file still exists
+		// the actual file is correct and completly uploaded,
+		// but partial journal file still exists.
+		// TODO: move journal somewhere?
 		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile // totaly correct file
 	}
-	if wastat.Size() > fromLog.FileSize { // actual file already bigger then expected! Shire error.
+	if wastat.Size() > fromLog.FileSize {
+		// actual file already bigger then expected! Impossible unless a user has intervened.
 		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.", name, wastat.Size(), fromLog.Startoffset)
 		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile
 	}
 	if wastat.Size() == fromLog.Startoffset {
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil // upload may continue
+		// upload may continue
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
 	}
-	// otherwise we need to read content of actual file and compare it with md5 sums of every block in journal file
+	// otherwise we need to read content of actual file and compare it with crc64 sums of every block in journal file
 	// TODO(zavla): run thorough content compare with md5 cheksums of blocks
 	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile
+}
+
+// GetFileSha1 gets sha1 of a file as a []byte
+func GetFileSha1(storagepath, name string) ([]byte, error) {
+	var ret []byte
+	f, err := os.Open(filepath.Join(storagepath, name))
+	if err != nil {
+		return ret, err
+	}
+	defer f.Close()
+
+	h := sha1.New()
+	_, err = io.Copy(h, f)
+	if err != nil {
+		return ret, err
+	}
+	return h.Sum(nil), nil
 }
