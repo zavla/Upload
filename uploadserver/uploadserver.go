@@ -484,7 +484,7 @@ func RequestedAnUpload(c *gin.Context, strSessionId string) {
 	}
 	strsha1 := c.GetHeader("Sha1")
 
-	// create client state
+	// create a map to hold clients state.
 	clientsstates = make(map[string]stateOfFileUpload)
 
 	clientsstates[strSessionId] = stateOfFileUpload{

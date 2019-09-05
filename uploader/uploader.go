@@ -273,6 +273,10 @@ func main() {
 		nameslist = append(nameslist, *file)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
+	// TODO(zavla): talkative errors?
+	// TODO(zavla): store partial files aside?
+	// TODO(zavla): run uploadserver as a Windows service.
+	// TODO(zavla): everyfunc to lowcase
 	// channel with filenames
 	chNames := make(chan string, 2)
 
@@ -372,7 +376,8 @@ func GetArchiveAttribute(fullfilename string) bool {
 	return (attrs & windows.FILE_ATTRIBUTE_ARCHIVE) != 0
 }
 func GetFileSHA1(fullfilename string) (hash.Hash, error) {
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
+	//f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
 	if err != nil {
 
 		return nil, err
