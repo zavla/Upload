@@ -14,7 +14,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 
 	var startstruct StartStructVer2
 	var headersize = int64(binary.Size(StartStructVer2{})) //depends on header version
-	var recordsize = int64(binary.Size(PartialFileInfoVer2{}))
+	var recordsize = int64(binary.Size(JournalRecordVer2{}))
 
 	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
 	errInLog = nil
@@ -45,14 +45,14 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 		correctrecordoffset += headersize
 		retState.FileSize = startstruct.TotalExpectedFileLength
 
-		currrecord := PartialFileInfoVer2{} // current log record
+		currrecord := JournalRecordVer2{} // current log record
 
 		// initial value for prevrecord wil never be a match to currrecord
-		prevrecord := PartialFileInfoVer2{
+		prevrecord := JournalRecordVer2{
 			Startoffset: -1,
 			Action:      successwriting} // forced to do not make a match
 
-		lastsuccessrecord := PartialFileInfoVer2{} // should not be a pointer
+		lastsuccessrecord := JournalRecordVer2{} // should not be a pointer
 		numrecords := int64(0)
 		lasterr := error(nil)
 		maybeErr := false
@@ -129,7 +129,7 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 
 	var startstruct StartStructVer1
 	var headersize = int64(binary.Size(StartStructVer1{})) //depends on header version
-	var recordsize = int64(binary.Size(PartialFileInfoVer1{}))
+	var recordsize = int64(binary.Size(JournalRecordVer1{}))
 
 	// !nil means the log-journal file must be truncated at last correct record to continue usage of this journal file
 	errInLog = nil
@@ -160,14 +160,14 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 		correctrecordoffset += headersize
 		retState.FileSize = startstruct.TotalExpectedFileLength
 
-		currrecord := PartialFileInfoVer1{} // current log record
+		currrecord := JournalRecordVer1{} // current log record
 
 		// initial value for prevrecord wil never be a match to currrecord
-		prevrecord := PartialFileInfoVer1{
+		prevrecord := JournalRecordVer1{
 			Startoffset: -1,
 			Action:      successwriting} // forced to do not make a match
 
-		lastsuccessrecord := PartialFileInfoVer1{} // should not be a pointer
+		lastsuccessrecord := JournalRecordVer1{} // should not be a pointer
 		numrecords := int64(0)
 		lasterr := error(nil)
 		maybeErr := false
@@ -249,7 +249,7 @@ func DecodePartialFile(r io.Reader, w io.Writer) error {
 
 func DecodePartialFileVer2(r io.Reader, w io.Writer) error {
 	startstruct := StartStructVer2{}
-	record := PartialFileInfoVer2{}
+	record := JournalRecordVer2{}
 
 	err := binary.Read(r, binary.LittleEndian, &startstruct)
 	if err != nil {

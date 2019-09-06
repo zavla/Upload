@@ -2,6 +2,7 @@ package main
 
 import (
 	"Upload/errstr"
+	"Upload/fsdriver"
 	"Upload/liteimp"
 	"bytes"
 	"crypto/sha1"
@@ -65,7 +66,7 @@ func eoe(exit bool, err error, descr string, args ...interface{}) {
 
 // SendAFile sends file to a micro service.
 // jar holds cookies from server http.Responses and use them in http.Requests
-func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.Hash) error {
+func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byte) error {
 	// opens file
 	_, name := filepath.Split(fullfilename)
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
@@ -92,7 +93,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, hsha1 hash.
 
 	req.ContentLength = stat.Size()          // file size
 	req.Header.Add("Expect", "100-continue") // client will not send body at once, it will wait for server response status "100-continue"
-	req.Header.Add("sha1", fmt.Sprintf("%x", hsha1.Sum(nil)))
+	req.Header.Add("sha1", fmt.Sprintf("%x", bsha1))
 
 	query := req.URL.Query()
 	query.Add("filename", name) // url parameter &filename
@@ -262,36 +263,39 @@ func main() {
 
 	// from hereafter use log for messages
 	log.SetOutput(flog)
+	defer flog.Close()
 
-	// walk a dir
-
-	nameslist := make([]string, 0, 200)
-	if *dirtomonitor != "" {
-		nameslist = GetFilenamesThatNeedUpload(*dirtomonitor, nameslist)
+	// check required parameters
+	if *file == "" && *dirtomonitor == "" {
+		log.Printf("--file or --dir must be specified.")
+		return
 	}
+
+	// channel with filenames
+	chNames := make(chan string, 2)
+
 	if *file != "" {
-		nameslist = append(nameslist, *file)
+		chNames <- *file
+	}
+	if *dirtomonitor != "" {
+		// walk a dir
+		go GetFilenamesThatNeedUpload(*dirtomonitor, chNames) // closes chNames after adding all files
+	} else {
+		close(chNames)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
 	// TODO(zavla): talkative errors?
 	// TODO(zavla): store partial files aside?
 	// TODO(zavla): run uploadserver as a Windows service.
 	// TODO(zavla): everyfunc to lowcase
-	// channel with filenames
-	chNames := make(chan string, 2)
+	// TODO(zavla): autotls?
+	// TODO(zavla): CSRF, do not mix POST request with URL parametres.
+	// TODO(zavla): chNames <-  GetFilenamesThatNeedUpload(chNames) send to chNames from gorouting
 
-	go puttoqueue(chNames, nameslist)
 	runWorkers(chNames)
 	log.Println("uploader exited.")
 }
-func puttoqueue(ch chan string, sl []string) {
-	for _, name := range sl {
 
-		ch <- name
-	}
-	close(ch) // range loop will read all elements from buffered channel if they are there
-	return
-}
 func runWorkers(ch chan string) {
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
@@ -315,16 +319,18 @@ func PrepareAndSendAFile(filename string) {
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
 	fullfilename := filepath.Clean(filename)
+	storagepath := filepath.Dir(fullfilename)
+	name := filepath.Base(fullfilename)
 
 	//compute SHA1 of a file
-	hsha1, err := GetFileSHA1(fullfilename)
+	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
 		log.Printf("Can't read file. %s", err)
 
 		return
 	}
 
-	err = SendAFile(uploadServerURL, fullfilename, jar, hsha1)
+	err = SendAFile(uploadServerURL, fullfilename, jar, bsha1)
 
 	if err == nil {
 		log.Printf("upload succsessful: file %s", fullfilename)
@@ -376,8 +382,8 @@ func GetArchiveAttribute(fullfilename string) bool {
 	return (attrs & windows.FILE_ATTRIBUTE_ARCHIVE) != 0
 }
 func GetFileSHA1(fullfilename string) (hash.Hash, error) {
-	//f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
+
 	if err != nil {
 
 		return nil, err
@@ -389,8 +395,9 @@ func GetFileSHA1(fullfilename string) (hash.Hash, error) {
 	return h, nil
 }
 
-func GetFilenamesThatNeedUpload(dir string, nameslist []string) []string {
-
+// to chNames <-
+func GetFilenamesThatNeedUpload(dir string, chNames chan<- string) {
+	defer close(chNames)
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil // next file please
@@ -398,9 +405,10 @@ func GetFilenamesThatNeedUpload(dir string, nameslist []string) []string {
 		// TODO(zavla): decide how to store "archive" attribute in linux
 		isarchiveset := GetArchiveAttribute(path)
 		if isarchiveset {
-			nameslist = append(nameslist, path)
+			chNames <- path
 		}
-		return nil
+		return nil // next file please
 	})
-	return nameslist
+
+	return
 }

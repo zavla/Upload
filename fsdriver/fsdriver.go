@@ -29,12 +29,12 @@ var (
 
 const constwriteblocklen = (1 << 16) - 1
 
-type CurrentAction byte
+type currentAction byte
 
 const (
-	noaction       CurrentAction = 0
-	startedwriting CurrentAction = 1
-	successwriting CurrentAction = 2
+	noaction       currentAction = 0
+	startedwriting currentAction = 1
+	successwriting currentAction = 2
 )
 
 // ---------------Log file versions BEGIN
@@ -49,43 +49,44 @@ const supportsLatestVer uint32 = structversion2
 
 // ---------------Log file versions END
 
-//---------------PartialFileInfoVerXXX
-// PartialFileInfo is a record in log file.
+// next go several versions of JournalRecordXXX
+
+// JournalRecord is a record in log file.
 // This is always the latest version than can hold all old versions of record.
-type PartialFileInfo struct {
-	Action      CurrentAction
+type JournalRecord struct {
+	Action      currentAction
 	Startoffset int64
 	Count       int64
 	Crc32       int32
 }
 
-// this is record version 1
-type PartialFileInfoVer1 struct {
-	Action      CurrentAction
+// JournalRecordVer1 this is a record version 1
+type JournalRecordVer1 struct {
+	Action      currentAction
 	Startoffset int64
 	Count       int64
 }
 
-// this method translates PartialFileInfo to old version 1
-func (r PartialFileInfo) Ver1() PartialFileInfoVer1 {
-	return PartialFileInfoVer1{
+// Ver1 translates JournalRecord to old version 1
+func (r JournalRecord) Ver1() JournalRecordVer1 {
+	return JournalRecordVer1{
 		Action:      r.Action,
 		Startoffset: r.Startoffset,
 		Count:       r.Count,
 	}
 }
 
-// this is record version 2
-type PartialFileInfoVer2 struct {
-	Action      CurrentAction
+// JournalRecordVer2 this is a record version 2
+type JournalRecordVer2 struct {
+	Action      currentAction
 	Startoffset int64
 	Count       int64
 	Crc32       int32
 }
 
-// this method translates PartialFileInfo to old version 1
-func (r PartialFileInfo) Ver2() PartialFileInfoVer2 {
-	return PartialFileInfoVer2{
+// Ver2 translates JournalRecord to old version 2
+func (r JournalRecord) Ver2() JournalRecordVer2 {
+	return JournalRecordVer2{
 		Action:      r.Action,
 		Startoffset: r.Startoffset,
 		Count:       r.Count,
@@ -93,20 +94,21 @@ func (r PartialFileInfo) Ver2() PartialFileInfoVer2 {
 	}
 }
 
-//---------------PartialFileInfoVerXXX
-
-type FileProperties struct {
+type fileProperties struct {
 	FileSize int64
 	Sha1     []byte
 }
+
+// FileState used to return state of a file to other packages
 type FileState struct {
-	FileProperties
+	fileProperties
 	Startoffset int64
 }
 
+// NewFileState creates FileState with parameters
 func NewFileState(filesize int64, bsha1 []byte, startoffset int64) *FileState {
 	return &FileState{
-		FileProperties: FileProperties{FileSize: filesize, Sha1: bsha1},
+		fileProperties: fileProperties{FileSize: filesize, Sha1: bsha1},
 		Startoffset:    startoffset,
 	}
 }
@@ -245,24 +247,25 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 	return //named ver, wp, wa, errwp, errwa
 }
 
-// AddBytesToFileInHunks writes to log file first and appends only to the actual file.
+// AddBytesToFile writes to log file first and appends only to the actual file.
 // Writes to actual file in blocks (hunks).
-//rename AddBytesToAFileUseTransactionLog
-func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destinationrecord *PartialFileInfo) (int64, error) {
+// Used by other packages.
+func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrecord *JournalRecord) (int64, error) {
 	// ver is a journal file version
 	l := len(newbytes)
 	lenhunk := constwriteblocklen // the size of block
 	curlen := lenhunk
 
-	numOfhunk := l / lenhunk
+	hunkscount := l / lenhunk
 
-	defer wp.Sync() // mandatory log file sync
-	defer wa.Sync() // mandatory actual file sync
+	// TODO(zavla): don't do Sync when hunkscount == 0 ?
+	defer wp.Sync() // log file sync
+	defer wa.Sync() // actual file sync
 
 	totalbyteswritten := int64(0)
-	for i := 0; i <= numOfhunk; i++ { // steps one time more then numOfhunks, last hunk is not full.
+	for i := 0; i <= hunkscount; i++ { // steps one time more then numOfhunks, last hunk is not full.
 		// dicides what is the current block length
-		if i == numOfhunk {
+		if i == hunkscount {
 			// last+1 hunk is for the rest of bytes (if any)
 			curlen = l - i*lenhunk
 		}
@@ -277,18 +280,18 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 			// add newbytes into actual file
 			from := i * lenhunk
 			to := from + curlen
-			log.Printf("wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset) == wa.WriteAt(newbytes[%d:%d], %d)", from, to, destinationrecord.Startoffset)
+
 			minlen := 16
 			if minlen > curlen {
 				minlen = curlen
 			}
-			log.Printf("newbytes[0:16] = %x", newbytes[from:from+minlen])
 
 			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)
+			// err == nil when FSD (file system driver) accepted data but still holds it in memory till flush
 			if err != nil {
-				// write of current block (hunk) failed, not big deal.
+				// write of current block (hunk) failed
 				// revert actual file, though it's not necessary, because log file doesn't have step2 record.
-				log.Printf("wa.Truncate(destinationrecord.Startoffset)=wa.Truncate(%d)", destinationrecord.Startoffset)
+
 				errFatal := wa.Truncate(destinationrecord.Startoffset)
 				if errFatal != nil { // can't truncate actual file.
 					return totalbyteswritten, errFatal
@@ -313,9 +316,10 @@ func AddBytesToFileInHunks(wa, wp *os.File, newbytes []byte, ver uint32, destina
 }
 
 // addRecordToJournalFile writes binary representation of PartialFileInfo into log file.
-func addRecordToJournalFile(pfi io.Writer, step CurrentAction, ver uint32, info PartialFileInfo) error {
+func addRecordToJournalFile(pfi io.Writer, step currentAction, ver uint32, info JournalRecord) error {
 	// ver is a journal file version
-	// PartialFileInfo is always can hold old versions, we cast it downto an old version if @ver is not the latest version
+	// PartialFileInfo is always can hold all old versions.
+	// We transform it to a correct version.
 	info.Action = step
 
 	var err error

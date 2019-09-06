@@ -50,7 +50,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 		// case for empty file
 		{name: "empty log file",
 			args:         args{log1}, // here goes io.Reader to read from
-			wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 0}},
+			wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 0}},
 			wantErr:      false,
 			errkind:      nil,
 			wantVer:      structversion2,
@@ -65,7 +65,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 	tests = append(tests, dcase{
 		name:         "recived with panic",
 		args:         args{log2}, // here goes io.Reader to read from
-		wantRetState: FileState{Startoffset: 94207, FileProperties: FileProperties{FileSize: 16961536}},
+		wantRetState: FileState{Startoffset: 94207, FileProperties: fileProperties{FileSize: 16961536}},
 		wantJOff:     0xDC + 4,
 		wantErr:      true,
 		errkind:      errPartialFileCorrupted,
@@ -167,12 +167,12 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
 	startlen := int64(binary.Size(StartStructVer1{}) + binary.Size(uint32(structversion1)))
-	recordlen := int64(binary.Size(PartialFileInfoVer1{}))
+	recordlen := int64(binary.Size(JournalRecordVer1{}))
 
 	data := []towrite{
 		towrite{
 			dcase: dcase{name: "onlystart",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      false,
 				errkind:      nil,
@@ -181,138 +181,138 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		towrite{
 			dcase: dcase{name: "onlyfirstofpair",
 				// last successful record points to offset 0
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
 			},
-			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
-			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
 		},
 		towrite{
 			dcase: dcase{name: "fullPair1000",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: false,
 				errkind: nil, // file uploaded fully with one write
 			},
-			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
-			rec: tobytes(PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 10, Count: 1000}),
+			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				JournalRecordVer1{Action: successwriting, Startoffset: 10, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 500}),
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 500}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // corrupt
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsWrongAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsNotAllowedAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: CurrentAction(99), Startoffset: 501, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: currentAction(99), Startoffset: 501, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsLastIsWrong",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 499},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 499},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 499},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 499},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsAllComplete",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 4*recordlen,
 
 				wantErr: false,
 				errkind: nil, // no error
 			},
 			rec: tobytes(
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer1{Action: startedwriting, Startoffset: 500, Count: 500},
-				PartialFileInfoVer1{Action: successwriting, Startoffset: 500, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 500},
+				JournalRecordVer1{Action: successwriting, Startoffset: 500, Count: 500},
 			),
 		},
 	}
 	//-----------------------
 	// everywhere is structversion1
-	for k, _ := range data {
+	for k := range data {
 		data[k].wantVer = structversion1
 	}
 	//
@@ -350,12 +350,12 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
 	startlen := int64(binary.Size(StartStructVer2{}) + binary.Size(uint32(structversion2)))
-	recordlen := int64(binary.Size(PartialFileInfoVer2{}))
+	recordlen := int64(binary.Size(JournalRecordVer2{}))
 
 	data := []towrite{
 		towrite{
 			dcase: dcase{name: "onlystart",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      false,
 				errkind:      nil,
@@ -364,138 +364,138 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		towrite{
 			dcase: dcase{name: "onlyfirstofpair",
 				// last successful record points to offset 0
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
 			},
-			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
-			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
 		},
 		towrite{
 			dcase: dcase{name: "fullPair1000",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: false,
 				errkind: nil, // file uploaded fully with one write
 			},
-			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 0, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
-			rec: tobytes(PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 10, Count: 1000}),
+			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				JournalRecordVer2{Action: successwriting, Startoffset: 10, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 500}),
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 500}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // corrupt
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsWrongAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsNotAllowedAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: CurrentAction(99), Startoffset: 501, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: currentAction(99), Startoffset: 501, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsLastIsWrong",
-				wantRetState: FileState{Startoffset: 500, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 499},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 499},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 499},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 499},
 			),
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsAllComplete",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: FileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 4*recordlen,
 
 				wantErr: false,
 				errkind: nil, // no error
 			},
 			rec: tobytes(
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				PartialFileInfoVer2{Action: startedwriting, Startoffset: 500, Count: 500},
-				PartialFileInfoVer2{Action: successwriting, Startoffset: 500, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
+				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 500},
+				JournalRecordVer2{Action: successwriting, Startoffset: 500, Count: 500},
 			),
 		},
 	}
 	//-----------------------
 	// everywhere is structversion1
-	for k, _ := range data {
+	for k := range data {
 		data[k].wantVer = structversion2
 		data[k].name = data[k].name + "Ver2"
 	}

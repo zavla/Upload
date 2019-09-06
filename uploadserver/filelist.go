@@ -18,6 +18,8 @@ type smallinf struct {
 	Size int64
 }
 
+// GetFileList is a gin.HandlerFunc.
+// Returns a response with html page "list of files"
 func GetFileList(c *gin.Context) {
 	storagepath := GetPathWhereToStore()
 

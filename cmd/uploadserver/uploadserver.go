@@ -14,55 +14,76 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const bindToAddress = "127.0.0.1:64000"
+var bindToAddress string
 
 //const bindToAddress = "1cprogrammer:8888"
 
 var (
 	errCantWriteLogFile = *errstr.NewError("uploadservermain", 0, "Can not start. Can't write to a log file.")
 )
-var storage string
+
+// server stores all the files here in sub dirs
+var storageroot string
 
 func main() {
 	logname := flag.String("log", "", "log file path and name.")
-	flag.StringVar(&storage, "storage", ".", "storage path for files")
+	flag.StringVar(&storageroot, "storageroot", "", "storage root path for files")
+	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified address:port")
 
 	flag.Parse()
-	uploadserver.Storage = storage
 
 	// setup log destination
-	var flog io.Writer // io.MultiWriter
-	var flogfile *os.File
+	var logwriter io.Writer // io.MultiWriter
+	var logfile *os.File
 
 	// uses log because log.out uses mutex
 	log.SetPrefix("[LogMsg] ")
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	if *logname == "" {
-		flog = os.Stdout
+		logwriter = os.Stdout
 	} else {
 		var err error
-		flogfile, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
+		logfile, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
 		if err != nil { // do not start without log file
 			log.Fatal(errCantWriteLogFile.SetDetails("filename: %s", *logname))
 		}
-		flog = io.MultiWriter(flogfile, os.Stdout)
+		logwriter = io.MultiWriter(logfile, os.Stdout)
+
 	}
-	log.SetOutput(flog)
-	defer flogfile.Close()
-	// here we have log
-	// where are we
+	log.SetOutput(logwriter)
+	defer logfile.Close()
+
+	// here we have a working log file
+
+	// check required params
+	if storageroot == "" {
+		log.Printf("--storageroot required")
+		flag.PrintDefaults()
+		return
+	}
+	storageroot = filepath.Clean(storageroot)
+	froot, err := openStoragerootRw(storageroot)
+	if err != nil {
+		log.Printf("Can't start server, storageroot rw error: %s", err)
+		return
+	}
+	defer froot.Close()
+
+	uploadserver.Storageroot = storageroot
+
+	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Printf("Can't find starting directory. %s", err)
+		log.Printf("Can't find starting directory of server executable (readonly). %s", err)
 		return
 	}
 	uploadserver.RunningFromDir = rundir
 
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
-	router.Use(gin.LoggerWithWriter(flog),
-		gin.RecoveryWithWriter(flog))
+	router.Use(gin.LoggerWithWriter(logwriter),
+		gin.RecoveryWithWriter(logwriter))
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("GET", "/list", uploadserver.GetFileList)
@@ -79,4 +100,33 @@ func main() {
 	s.ListenAndServe()
 	log.Println("Uploadserver main() exited.")
 
+}
+
+func openStoragerootRw(storageroot string) (*os.File, error) {
+	d, err := os.OpenFile(storageroot, os.O_RDONLY, 0400)
+	if os.IsExist(err) {
+		// check if its a dir
+		info, err := d.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			// OK
+			return d, nil
+		}
+		return nil, os.ErrExist // file(not a dir) exists!
+
+	}
+	if os.IsNotExist(err) {
+		mkerr := os.MkdirAll(storageroot, 0400)
+		if mkerr != nil {
+			return nil, mkerr
+		}
+		d, err = os.OpenFile(storageroot, os.O_RDONLY, 0400)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return d, nil
 }

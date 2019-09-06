@@ -55,8 +55,10 @@ var clientsstates map[string]stateOfFileUpload
 var usedfiles sync.Map
 var emptysha1 [20]byte
 
-// var holds path to file store for this instance
-var Storage string
+// Storageroot holds path to file store for this instance
+var Storageroot string
+
+// RunningFromDir used to access html templates
 var RunningFromDir string
 
 const constdirforfiles = "d:/temp/"
@@ -86,14 +88,14 @@ func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 		n, err := c.Read(b)         // usually reads Request.Body
 		if err != nil && err != io.EOF {
 			//DEBUG!!!
-			log.Printf("endless recieve loop : i=%d, read error = %s\n", i, err)
+			//log.Printf("endless recieve loop : i=%d, read error = %s\n", i, err)
 			return errConnectionReadError // or timeout?
 		}
 
 		if n > 0 {
 			chReciever <- b[:n]
 			//DEBUG!!!
-			log.Printf("endless recieve loop : i=%d send to chReciever n = %d\n", i, n)
+			//log.Printf("endless recieve loop : i=%d send to chReciever n = %d\n", i, n)
 
 		}
 		if err == io.EOF {
@@ -111,7 +113,7 @@ func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 func writeChanTo(chSource chan []byte,
 	chResult chan<- writeresult,
 	storagepath, name string,
-	destination fsdriver.PartialFileInfo) {
+	destination fsdriver.JournalRecord) {
 
 	// to begin open files
 	namelog := fsdriver.GetPartialJournalFileName(name)
@@ -122,6 +124,7 @@ func writeChanTo(chSource chan []byte,
 		chResult <- writeresult{0, errp}
 		return
 	}
+	// TODO(zavla): Close may return err! means disk failure after FSD got bytes into its memmory
 	defer wp.Close()
 
 	if erra != nil {
@@ -143,9 +146,9 @@ func writeChanTo(chSource chan []byte,
 			} else { // writes when chan is not empty
 				if len(b) != 0 {
 
-					log.Printf("WRITES BYTES len(b) = %d to destination offset %d\n", len(b), destination.Startoffset)
-					successbytescount, err := fsdriver.AddBytesToFileInHunks(wa, wp, b, ver, &destination)
-					log.Printf("after AddBytesToFileInHunks destination offset %d\n", destination.Startoffset)
+					//log.Printf("WRITES BYTES len(b) = %d to destination offset %d\n", len(b), destination.Startoffset)
+					// ACTUAL WRITE
+					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination)
 
 					// whatIsInFile now holds last log record plus count bytes written.
 					nbyteswritten += int64(successbytescount)
@@ -153,7 +156,7 @@ func writeChanTo(chSource chan []byte,
 						// disk free space error
 						// disk failure
 						// files access rights wrong
-						// other recoverable error and not recoverable fails
+						// other recoverable errors and not recoverable fails
 						chResult <- writeresult{nbyteswritten, err}
 						// This is a server, try to alert operator and retry.
 						// We have already recieved bytes, try not to loose them.
@@ -167,7 +170,6 @@ func writeChanTo(chSource chan []byte,
 		} //select
 	} //for !closed (while input chan not closed)
 
-	log.Println("WriteChanneltoDisk ended.")
 	return // ends gourouting
 }
 
@@ -177,8 +179,8 @@ func writeChanTo(chSource chan []byte,
 func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
 	chReciever chan []byte,
 	chWriteResult chan writeresult,
-	constdirforfiles, name string,
-	whatwhere fsdriver.PartialFileInfo) (error, writeresult) {
+	dir, name string,
+	whatwhere fsdriver.JournalRecord) (error, writeresult) {
 
 	expectedcount := whatwhere.Count
 	if expectedcount < 0 { // should never happen, why we expect more than filesize
@@ -191,13 +193,17 @@ func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
 	}
 
 	// Starts goroutine in background for write operations for this connection.
-	go writeChanTo(chReciever, chWriteResult, constdirforfiles, name, whatwhere)
+	// writeChanTo will write while we are recieving.
+	go writeChanTo(chReciever, chWriteResult, dir, name, whatwhere)
 
-	// Reciever works in current thread, sends bytes to chReciever.
+	// Reciever works in current goroutine, sends bytes to chReciever.
 	// Reciever may end with error, by timeout with error, or by EOF with nil error.
+	// First wait: for end of recieve
 	errRecieve := RecieveAndSendToChan(c_Request_Body, chReciever) // exits when error or EOF
 
-	// here reciever has ended. We wait for write G to complete.
+	// here reciever has ended.
+
+	// Second wait: for end of write, we wait for write goroutine to complete.
 	writeresult, ok := waitForWriteToFinish(chWriteResult, expectedcount) // waits for the end of writing
 
 	// here ok=true means we have written the whole file.
@@ -210,9 +216,9 @@ func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
 
 }
 
-// convertFileStateToJsonFileStatus converts struct FileState to a json representation with
+// convertFileStateToJSONFileStatus converts struct FileState to a json representation with
 // exported liteimp.JsonFileStatus.
-func convertFileStateToJsonFileStatus(state fsdriver.FileState) *liteimp.JsonFileStatus {
+func convertFileStateToJSONFileStatus(state fsdriver.FileState) *liteimp.JsonFileStatus {
 	return &liteimp.JsonFileStatus{
 		JsonResponse: liteimp.JsonResponse{
 			Startoffset: state.Startoffset,
@@ -221,13 +227,13 @@ func convertFileStateToJsonFileStatus(state fsdriver.FileState) *liteimp.JsonFil
 	}
 }
 
-type Logline struct {
+type logLine struct {
 	gin.LogFormatterParams
 }
 
 // logline mimics gin defaultLogger to format a log line.
-func logline(c *gin.Context, msg string) (ret Logline) {
-	ret = Logline{gin.LogFormatterParams{
+func logline(c *gin.Context, msg string) (ret logLine) {
+	ret = logLine{gin.LogFormatterParams{
 		Request: c.Request,
 		IsTerm:  false,
 	},
@@ -241,7 +247,7 @@ func logline(c *gin.Context, msg string) (ret Logline) {
 }
 
 // String used to print msg to a log.out
-func (param Logline) String() string {
+func (param logLine) String() string {
 
 	var statusColor, methodColor, resetColor string
 
@@ -266,7 +272,9 @@ func ServeAnUpload(c *gin.Context) {
 		//generate new cookie
 		newsessionID := uuid.New().String()
 		log.Println(logline(c, fmt.Sprintf("starts a new session %s", newsessionID)))
-		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "", "", false, true)
+		// httpOnly==true for cookie be unavailable for javascript api.
+		// path=/upload. "/upload" should be in URL path for cookie to be sent.
+		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "/upload", "", false, true)
 
 		// c holds session id in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
@@ -367,7 +375,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			chWriteResult,
 			storagepath,
 			name,
-			fsdriver.PartialFileInfo{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
+			fsdriver.JournalRecord{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
 		if errreciver != nil || writeresult.err != nil ||
 			(whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize {
 			// server failed to write all the bytes,
@@ -390,7 +398,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			}
 			// This will trigger another request from client.
 			// Client must send rest of the file.
-			c.JSON(http.StatusConflict, *convertFileStateToJsonFileStatus(whatIsInFile))
+			c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 			return
 		}
 
@@ -414,8 +422,11 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.GetPartialJournalFileName(name)
-		namepartnew := filepath.Join(storagepath, getFinalNameOfJournalFile(namepart, factsha1))
-		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+		namepartnew := getFinalNameOfJournalFile(namepart, factsha1)
+		err = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+		if err != nil {
+			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
+		}
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
@@ -498,7 +509,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 		good:       true,
 		name:       name,
 		path:       storagepath,
-		filestatus: *convertFileStateToJsonFileStatus(whatIsInFile),
+		filestatus: *convertFileStateToJSONFileStatus(whatIsInFile),
 	}
 
 	// Create recieve channel to write bytes for this connection.
@@ -530,7 +541,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			chWriteResult,
 			storagepath,
 			name,
-			fsdriver.PartialFileInfo{Count: lcontent, Startoffset: 0}) // blocks current Goroutine
+			fsdriver.JournalRecord{Count: lcontent, Startoffset: 0}) // blocks current Goroutine
 
 		if errreciver != nil || writeresult.err != nil { // reciver OR write failed
 			// server failed to write all the bytes
@@ -564,10 +575,12 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 		//SUCCESS!!!
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.GetPartialJournalFileName(name)
-		namepartnew := filepath.Join(storagepath, getFinalNameOfJournalFile(namepart, factsha1))
+		namepartnew := getFinalNameOfJournalFile(namepart, factsha1)
 
-		_ = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
-
+		err = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+		if err != nil {
+			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, err", namepart, namepartnew, err)))
+		}
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 
@@ -576,7 +589,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	// Here we are when uploaded file already exist.
 	// We respond with a json with expected offsett and file size.
 
-	c.JSON(http.StatusConflict, *convertFileStateToJsonFileStatus(whatIsInFile))
+	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 
 	// We expect the client to do one more request with the rest of the file.
 	// Session State saved in a map, session key (liteimp.KeysessionID) is in cookie.
@@ -607,8 +620,9 @@ func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) 
 
 }
 
+// GetPathWhereToStore returns a subdir of current user
 func GetPathWhereToStore() string {
-	return Storage //TODO(zavla): change per user?
+	return Storageroot //TODO(zavla): change per user?
 }
 
 // getFinalNameOfJournalFile used to rename journal file when upload successfully completes.

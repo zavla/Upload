@@ -24,7 +24,7 @@ func (e errstr) SubError(parenterr error) *errstr {
 	return &e
 }
 func (e errstr) Error() string {
-	return fmt.Sprintf(`Error in: %s, #%d %s, details %s, suberror: %s`, e.Group, e.Code, e.S, e.Details, e.Err)
+	return fmt.Sprintf(`Error in %s, #%d - %s, details %s, suberror: %s`, e.Group, e.Code, e.S, e.Details, e.Err)
 }
 func (e errstr) SetDetails(format string, args ...interface{}) errstr {
 	e.Details = fmt.Sprintf(format, args...)
