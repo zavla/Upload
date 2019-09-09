@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"golang.org/x/net/publicsuffix"
-	"golang.org/x/sys/windows"
 )
 
 var (
@@ -334,6 +333,7 @@ func PrepareAndSendAFile(filename string) {
 
 	if err == nil {
 		log.Printf("upload succsessful: file %s", fullfilename)
+
 		if err := MarkFileAsUploaded(fullfilename); err != nil {
 			// a non critical error
 			log.Printf("Can's set file attribute: %s", err)
@@ -347,40 +347,6 @@ func PrepareAndSendAFile(filename string) {
 	return
 }
 
-func MarkFileAsUploaded(fullfilename string) error {
-	// uses Windows API
-	ptrFilenameUint16, err := windows.UTF16PtrFromString(fullfilename)
-	if err != nil {
-		log.Printf("Can't convert filename to UTF16 %s", fullfilename)
-		return err
-	}
-	attr, err := windows.GetFileAttributes(ptrFilenameUint16)
-	if err != nil {
-		log.Printf("Can't get file attributes: %s", err)
-		return err
-	}
-	if attr&windows.FILE_ATTRIBUTE_ARCHIVE != 0 {
-		err := windows.SetFileAttributes(ptrFilenameUint16, attr^windows.FILE_ATTRIBUTE_ARCHIVE)
-		if err != nil {
-			log.Printf("Can't set file archive attribute to 0: %s", err)
-			return err
-		}
-	}
-	return nil
-
-}
-
-func GetArchiveAttribute(fullfilename string) bool {
-	ptrFilename, err := windows.UTF16PtrFromString(fullfilename)
-	if err != nil {
-		return false
-	}
-	attrs, err := windows.GetFileAttributes(ptrFilename)
-	if err != nil {
-		return false
-	}
-	return (attrs & windows.FILE_ATTRIBUTE_ARCHIVE) != 0
-}
 func GetFileSHA1(fullfilename string) (hash.Hash, error) {
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
 
@@ -403,7 +369,7 @@ func GetFilenamesThatNeedUpload(dir string, chNames chan<- string) {
 			return nil // next file please
 		}
 		// TODO(zavla): decide how to store "archive" attribute in linux
-		isarchiveset := GetArchiveAttribute(path)
+		isarchiveset, _ := GetArchiveAttribute(path)
 		if isarchiveset {
 			chNames <- path
 		}

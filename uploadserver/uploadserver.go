@@ -124,7 +124,7 @@ func writeChanTo(chSource chan []byte,
 		chResult <- writeresult{0, errp}
 		return
 	}
-	// TODO(zavla): Close may return err! means disk failure after FSD got bytes into its memmory
+	// TODO(zavla): Close may return err! means disk failure after File System Driver got bytes into its memmory
 	defer wp.Close()
 
 	if erra != nil {

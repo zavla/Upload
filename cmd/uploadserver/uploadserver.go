@@ -103,27 +103,12 @@ func main() {
 }
 
 func openStoragerootRw(storageroot string) (*os.File, error) {
+	mkerr := os.MkdirAll(storageroot, 0400)
+	if mkerr != nil {
+		return nil, mkerr
+	}
 	d, err := os.OpenFile(storageroot, os.O_RDONLY, 0400)
-	if os.IsExist(err) {
-		// check if its a dir
-		info, err := d.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if info.IsDir() {
-			// OK
-			return d, nil
-		}
-		return nil, os.ErrExist // file(not a dir) exists!
 
-	}
-	if os.IsNotExist(err) {
-		mkerr := os.MkdirAll(storageroot, 0400)
-		if mkerr != nil {
-			return nil, mkerr
-		}
-		d, err = os.OpenFile(storageroot, os.O_RDONLY, 0400)
-	}
 	if err != nil {
 		return nil, err
 	}
