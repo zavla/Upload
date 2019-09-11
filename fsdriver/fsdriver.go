@@ -247,9 +247,9 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 	return //named ver, wp, wa, errwp, errwa
 }
 
-// AddBytesToFile writes to log file first and appends only to the actual file.
+// AddBytesToFile writes to journal file then appends to the actual file.
 // Writes to actual file in blocks (hunks).
-// Used by other packages.
+// Used by package uploadserver.
 func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrecord *JournalRecord) (int64, error) {
 	// ver is a journal file version
 	l := len(newbytes)

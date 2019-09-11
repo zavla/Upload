@@ -11,6 +11,7 @@ func MarkFileAsUploaded(fullfilename string) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	return chattr.SetAttr(f, chattr.FS_NODUMP_FL)
 
 }
@@ -20,5 +21,7 @@ func GetArchiveAttribute(fullfilename string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	defer f.Close()
+
 	return chattr.IsAttr(f, chattr.FS_NODUMP_FL)
 }

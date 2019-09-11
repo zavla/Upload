@@ -50,7 +50,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 		// case for empty file
 		{name: "empty log file",
 			args:         args{log1}, // here goes io.Reader to read from
-			wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 0}},
+			wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 0}},
 			wantErr:      false,
 			errkind:      nil,
 			wantVer:      structversion2,
@@ -65,7 +65,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 	tests = append(tests, dcase{
 		name:         "recived with panic",
 		args:         args{log2}, // here goes io.Reader to read from
-		wantRetState: FileState{Startoffset: 94207, FileProperties: fileProperties{FileSize: 16961536}},
+		wantRetState: FileState{Startoffset: 94207, fileProperties: fileProperties{FileSize: 16961536}},
 		wantJOff:     0xDC + 4,
 		wantErr:      true,
 		errkind:      errPartialFileCorrupted,
@@ -172,7 +172,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	data := []towrite{
 		towrite{
 			dcase: dcase{name: "onlystart",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      false,
 				errkind:      nil,
@@ -181,7 +181,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		towrite{
 			dcase: dcase{name: "onlyfirstofpair",
 				// last successful record points to offset 0
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
@@ -190,7 +190,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
@@ -201,7 +201,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "fullPair1000",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: false,
@@ -212,7 +212,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
@@ -223,7 +223,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -237,7 +237,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -251,7 +251,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsWrongAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -266,7 +266,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsNotAllowedAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -281,7 +281,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsLastIsWrong",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -296,7 +296,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsAllComplete",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 4*recordlen,
 
 				wantErr: false,
@@ -355,7 +355,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	data := []towrite{
 		towrite{
 			dcase: dcase{name: "onlystart",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      false,
 				errkind:      nil,
@@ -364,7 +364,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		towrite{
 			dcase: dcase{name: "onlyfirstofpair",
 				// last successful record points to offset 0
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
@@ -373,7 +373,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
@@ -384,7 +384,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "fullPair1000",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: false,
@@ -395,7 +395,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 0, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
@@ -406,7 +406,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -420,7 +420,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -434,7 +434,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsWrongAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -449,7 +449,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsNotAllowedAction",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -464,7 +464,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsLastIsWrong",
-				wantRetState: FileState{Startoffset: 500, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 500, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
@@ -479,7 +479,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 		towrite{
 			dcase: dcase{name: "TwoPairsAllComplete",
-				wantRetState: FileState{Startoffset: 1000, FileProperties: fileProperties{FileSize: 1000}},
+				wantRetState: FileState{Startoffset: 1000, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 4*recordlen,
 
 				wantErr: false,

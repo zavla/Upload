@@ -61,42 +61,40 @@ var Storageroot string
 // RunningFromDir used to access html templates
 var RunningFromDir string
 
-const constdirforfiles = "d:/temp/"
+const constrecieveblocklen = (1 << 16) - 1
 
 // const bindToAddress = "127.0.0.1:64000"
 
 type writeresult struct {
-	count int64
-	err   error
+	count    int64
+	err      error
+	slerrors []error
 }
 
-// RecieveAndSendToChan reads blocks from io.ReaderCloser until io.EOF or timeout.
+// recieveAndSendToChan reads blocks from io.ReaderCloser until io.EOF or timeout.
 // Expects large Gb files from http.Request.Boby.
 // Sends bytes to chReciever.
 // Suppose to work within a thread that reads connection.
 // Exits when error or EOF.
-func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
-	const constrecieveblocklen = (1 << 16) - 1
+func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
+
 	// timeout set in http.Server{Timeout...}
 	defer close(chReciever)
 
 	blocklen := 3 * constrecieveblocklen
 	i := 0
-	for { // endless loop
+	for { // endless recieve loop
 
-		b := make([]byte, blocklen) // must allocate for every read, else reads will overwrite previous b
+		b := make([]byte, blocklen) // must allocate for every read or else reads will overwrite previous b
 		n, err := c.Read(b)         // usually reads Request.Body
 		if err != nil && err != io.EOF {
-			//DEBUG!!!
-			//log.Printf("endless recieve loop : i=%d, read error = %s\n", i, err)
+
 			return errConnectionReadError // or timeout?
 		}
 
 		if n > 0 {
-			chReciever <- b[:n]
-			//DEBUG!!!
-			//log.Printf("endless recieve loop : i=%d send to chReciever n = %d\n", i, n)
 
+			chReciever <- b[:n] // buffered chReciever
 		}
 		if err == io.EOF {
 			return nil // success reading
@@ -107,68 +105,126 @@ func RecieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 
 }
 
-// writeChanTo runs in background as a goroutine. Waits for input bytes in input chan.
+// consumeSourceChannel runs in background as a goroutine. Waits for input bytes in input chan.
 // Adds bytes[] to a file, using transaction log file.
 // Closes files at the return.
-func writeChanTo(chSource chan []byte,
+func consumeSourceChannel(
+	chSource chan []byte,
 	chResult chan<- writeresult,
 	storagepath, name string,
 	destination fsdriver.JournalRecord) {
 
-	// to begin open files
+	// to begin open destination files
 	namelog := fsdriver.GetPartialJournalFileName(name)
 	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(storagepath, name, namelog)
 	// wp = transaction log file
 	// wa = actual file
 	if errp != nil {
-		chResult <- writeresult{0, errp}
+		chResult <- writeresult{0, errp, nil}
 		return
 	}
-	// TODO(zavla): Close may return err! means disk failure after File System Driver got bytes into its memmory
+	// (os.File).Close may return err, means disk failure after File System Driver got bytes into its memmory with successfull Write().
+	// second (defered) close in case of panic.
 	defer wp.Close()
 
 	if erra != nil {
-		chResult <- writeresult{0, erra}
+		chResult <- writeresult{0, erra, nil}
 		return
 	}
+	// second (defered) close. It is safe to call Close twice on *os.File.
 	defer wa.Close()
+
+	// small blocks buffer - for small []byte from source
+	smallbytes := make([]byte, constrecieveblocklen*3)
+	// count of bytes in smallbytes
+	smallbytestotal := 0
 
 	//---
 	closed := false
 	nbyteswritten := int64(0) // return nbyteswritten to chResult
 	for !closed {
 		select {
-		case b, ok := <-chSource: // capacity is > 1. Waits only when chSource is empty. Reads when there is something.
-			if !ok { // ok=false means closed
+		case b, ok := <-chSource: // chSource capacity is > 1. Case waits only when chSource is empty.
+
+			if !ok { // ok==false means channel closed and len(b)==0
 
 				closed = true
-				chResult <- writeresult{nbyteswritten, nil} // was no write failures
-			} else { // writes when chan is not empty
-				if len(b) != 0 {
+				var writeerr error
+				var err error
+				var successbytescount int64
+				// on closed channel write smallbytes buffer first
+				if smallbytestotal != 0 {
 
-					//log.Printf("WRITES BYTES len(b) = %d to destination offset %d\n", len(b), destination.Startoffset)
-					// ACTUAL WRITE
-					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination)
+					//log.Printf("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 
-					// whatIsInFile now holds last log record plus count bytes written.
-					nbyteswritten += int64(successbytescount)
+					successbytescount, writeerr = fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination) // ACTUAL WRITE
+
+					nbyteswritten += successbytescount
+
+				}
+				// explicit Close
+				slerrors, closeerr := closeFiles(wa, wp) //
+				err = closeerr                           // Close error is the last error while working with file.
+				if writeerr != nil {
+					err = writeerr // unless there was a Write error
+				}
+
+				chResult <- writeresult{nbyteswritten, err, slerrors} // err==nil means no error
+				return
+			}
+
+			// here channel is not empty
+			if len(b) != 0 {
+				addedtosmallbytes := false // flag if the current b is in smallbytes or stands alone.
+				if len(b) < constrecieveblocklen {
+					copy(smallbytes[smallbytestotal:], b)
+
+					smallbytestotal += len(b)
+					addedtosmallbytes = true
+				}
+				// if b is large for smallbytes but smallbytes not empty?
+
+				if smallbytestotal > constrecieveblocklen || (!addedtosmallbytes && smallbytestotal != 0) {
+					// smallbytes byffer is big enough to be written
+
+					//log.Printf("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+
+					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination) // ACTUAL WRITE
+					smallbytestotal = 0
+					nbyteswritten += successbytescount
 					if err != nil {
-						// disk free space error
-						// disk failure
-						// files access rights wrong
-						// other recoverable errors and not recoverable fails
-						chResult <- writeresult{nbyteswritten, err}
-						// This is a server, try to alert operator and retry.
-						// We have already recieved bytes, try not to loose them.
-						return // ends gourouting
-						//TODO: notify reciver of an write error to stop recieving bytes
+						// disk failure in Write
+						// explicit Close
+						slerrors, _ := closeFiles(wa, wp) // ignore Close error because there was a Write error.
+						// not sure how much File System Driver has written.
+						// We need to reread existing file to see what it has inside.
+						chResult <- writeresult{nbyteswritten, err, slerrors}
+						return
+
 					}
 
 				}
+				if !addedtosmallbytes { // this b is not in smallbytes buffer
+
+					//log.Printf("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
+
+					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination) // ACTUAL WRITE
+
+					nbyteswritten += successbytescount
+					if err != nil {
+						// disk Write failure
+						// explicit Close
+						slerrors, _ := closeFiles(wa, wp) // ignore Close error because there was a Write error
+						chResult <- writeresult{nbyteswritten, err, slerrors}
+						return
+
+					}
+				}
 
 			}
+			// here we do next channel read , case b,ok <- chSource
 		} //select
-	} //for !closed (while input chan not closed)
+	} //for !closed (while input channel not closed)
 
 	return // ends gourouting
 }
@@ -176,7 +232,7 @@ func writeChanTo(chSource chan []byte,
 // startWriteStartRecieveAndWait runs writing G, runs recieving G, and waits for them to complete.
 // Analyses returns from both Gs.
 // Returns error from reciver G and error from writer G.
-func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
+func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
 	chReciever chan []byte,
 	chWriteResult chan writeresult,
 	dir, name string,
@@ -194,12 +250,12 @@ func startWriteStartRecieveAndWait(c_Request_Body io.ReadCloser,
 
 	// Starts goroutine in background for write operations for this connection.
 	// writeChanTo will write while we are recieving.
-	go writeChanTo(chReciever, chWriteResult, dir, name, whatwhere)
+	go consumeSourceChannel(chReciever, chWriteResult, dir, name, whatwhere)
 
 	// Reciever works in current goroutine, sends bytes to chReciever.
 	// Reciever may end with error, by timeout with error, or by EOF with nil error.
 	// First wait: for end of recieve
-	errRecieve := RecieveAndSendToChan(c_Request_Body, chReciever) // exits when error or EOF
+	errRecieve := recieveAndSendToChan(c_Request_Body, chReciever) // exits when error or EOF
 
 	// here reciever has ended.
 
@@ -370,7 +426,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
 		// client sends propper rest of the file
-		errreciver, writeresult := startWriteStartRecieveAndWait(c.Request.Body,
+		errreciver, writeresult := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -536,7 +592,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			return
 		}
 		// next: recive and put to channel, read from this channel and write, wait for end of write operation
-		errreciver, writeresult := startWriteStartRecieveAndWait(c.Request.Body,
+		errreciver, writeresult := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -579,7 +635,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 
 		err = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
 		if err != nil {
-			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, err", namepart, namepartnew, err)))
+			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
 		}
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
@@ -604,7 +660,7 @@ func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) 
 	ok = false                // returns
 	retwriteresult = writeresult{count: 0, err: errUnexpectedFuncReturn}
 
-	// waits for chWriteResult to respond or be closed
+	// waits for value in channel chWriteResult or chWriteResult be closed
 	select {
 	case retwriteresult = <-chWriteResult:
 	}
@@ -629,6 +685,28 @@ func GetPathWhereToStore() string {
 func getFinalNameOfJournalFile(namepart string, factsha1 []byte) string {
 	nopartial := strings.Replace(namepart, ".partialinfo", "", 1)
 	return fmt.Sprintf("%s.sha1-%x", nopartial, factsha1)
+}
+
+func closeFiles(wa, wp *os.File) ([]error, error) {
+	var slerrors []error
+	err1 := wa.Close()
+	if err1 != nil {
+		//log.Println(logline(c, fmt.Sprintf("writer can't close file %s, %s", wa.Name(), err1)))
+		slerrors = append(slerrors, err1)
+	}
+	err2 := wp.Close()
+	if err2 != nil {
+		//log.Println(logline(c, fmt.Sprintf("write can't close file %s, %s", wp.Name(), err2)))
+		slerrors = append(slerrors, err2)
+
+	}
+	if err1 != nil {
+		return slerrors, err1
+	}
+	if err2 != nil {
+		return slerrors, err2
+	}
+	return nil, nil
 }
 
 // To send a new file:
