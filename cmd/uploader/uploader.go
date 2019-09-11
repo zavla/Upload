@@ -41,7 +41,7 @@ var (
 var jar cookiejar.Jar
 
 //const uploadServerURL = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
-const uploadServerURL = `http://127.0.0.1:64000/upload`
+var uploadServerURL = `http://127.0.0.1:64000/upload`
 
 //const uploadServerURL = `http://myapp/upload`
 
@@ -232,6 +232,7 @@ func main() {
 	logname := flag.String("log", "", "log file path and name.")
 	file := flag.String("file", "", "a file you want to upload")
 	dirtomonitor := flag.String("dir", "", "a directory which to monitor for new files to upload")
+	flag.StringVar(&uploadServerURL, "server", `http://127.0.0.1:64000/upload`, "URL of upload server")
 	flag.Parse()
 	if len(os.Args) == 0 {
 		flag.PrintDefaults()

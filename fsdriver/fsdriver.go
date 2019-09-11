@@ -247,8 +247,8 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 	return //named ver, wp, wa, errwp, errwa
 }
 
-// AddBytesToFile writes to journal file then appends to the actual file.
-// Writes to actual file in blocks (hunks).
+// AddBytesToFile writes to journal file then appends newbytes to the actual file.
+// Writes to actual file using blocks (hunks). Write each block. Block is a write unit.
 // Used by package uploadserver.
 func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrecord *JournalRecord) (int64, error) {
 	// ver is a journal file version
@@ -259,7 +259,7 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 	hunkscount := l / lenhunk
 
 	// TODO(zavla): don't do Sync when hunkscount == 0 ?
-	defer wp.Sync() // log file sync
+	defer wp.Sync() // journal file sync
 	defer wa.Sync() // actual file sync
 
 	totalbyteswritten := int64(0)
@@ -305,7 +305,7 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 			err = addRecordToJournalFile(wp, successwriting, ver, *destinationrecord)
 			if err != nil {
 				destinationrecord.Count = 0
-				return totalbyteswritten, err // log file failer. (free disk space for e.x.)
+				return totalbyteswritten, err // log file failure. (no free disk space for e.x.)
 			}
 			destinationrecord.Startoffset += int64(nhavewritten) // finaly adds writen bytes count to offset
 			totalbyteswritten += int64(nhavewritten)
