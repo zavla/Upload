@@ -155,7 +155,7 @@ func consumeSourceChannel(
 				// on closed channel write smallbytes buffer first
 				if smallbytestotal != 0 {
 
-					//log.Printf("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 
 					successbytescount, writeerr = fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination) // ACTUAL WRITE
 
@@ -187,7 +187,7 @@ func consumeSourceChannel(
 				if smallbytestotal > constrecieveblocklen || (!addedtosmallbytes && smallbytestotal != 0) {
 					// smallbytes byffer is big enough to be written
 
-					//log.Printf("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination) // ACTUAL WRITE
 					smallbytestotal = 0
@@ -206,7 +206,7 @@ func consumeSourceChannel(
 				}
 				if !addedtosmallbytes { // this b is not in smallbytes buffer
 
-					//log.Printf("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
+					debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
 
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination) // ACTUAL WRITE
 
