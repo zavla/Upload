@@ -166,8 +166,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	//----------------------- Add here cases
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
-	startlen := int64(binary.Size(StartStructVer1{}) + binary.Size(uint32(structversion1)))
-	recordlen := int64(binary.Size(JournalRecordVer1{}))
+	startlen := int64(binary.Size(startstructver1{}) + binary.Size(uint32(structversion1)))
+	recordlen := int64(binary.Size(journalrecordver1{}))
 
 	data := []towrite{
 		towrite{
@@ -186,7 +186,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
 			},
-			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
@@ -196,7 +196,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
-			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
+			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
 		},
 		towrite{
@@ -207,8 +207,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: false,
 				errkind: nil, // file uploaded fully with one write
 			},
-			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
@@ -218,8 +218,8 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
-			rec: tobytes(JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 1000},
-				JournalRecordVer1{Action: successwriting, Startoffset: 10, Count: 1000}),
+			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000},
+				journalrecordver1{Action: successwriting, Startoffset: 10, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
@@ -230,10 +230,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 500}),
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 500, Count: 500}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
@@ -244,9 +244,9 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // corrupt
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -258,10 +258,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -273,10 +273,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: currentAction(99), Startoffset: 501, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: currentAction(99), Startoffset: 501, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -288,10 +288,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 499},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 499},
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 500, Count: 499},
+				journalrecordver1{Action: startedwriting, Startoffset: 500, Count: 499},
 			),
 		},
 		towrite{
@@ -303,10 +303,10 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				errkind: nil, // no error
 			},
 			rec: tobytes(
-				JournalRecordVer1{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer1{Action: startedwriting, Startoffset: 500, Count: 500},
-				JournalRecordVer1{Action: successwriting, Startoffset: 500, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver1{Action: startedwriting, Startoffset: 500, Count: 500},
+				journalrecordver1{Action: successwriting, Startoffset: 500, Count: 500},
 			),
 		},
 	}
@@ -319,7 +319,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 	ret := make(map[string]towrite) // a return, map[filename]towrite
 
 	// next is a start header of a log file
-	startrecord := StartStructVer1{VersionBytes: structversion1,
+	startrecord := startstructver1{VersionBytes: structversion1,
 		VersionBytesEnd:         structversion1,
 		TotalExpectedFileLength: 1000}
 
@@ -349,8 +349,8 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	//----------------------- Add here cases
 	// data is a slice to hold a test case "dcase" and file content "rec"
 	// Every file will start with startstruct
-	startlen := int64(binary.Size(StartStructVer2{}) + binary.Size(uint32(structversion2)))
-	recordlen := int64(binary.Size(JournalRecordVer2{}))
+	startlen := int64(binary.Size(startstructver2{}) + binary.Size(uint32(structversion2)))
+	recordlen := int64(binary.Size(journalrecordver2{}))
 
 	data := []towrite{
 		towrite{
@@ -369,7 +369,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantErr:      true,
 				errkind:      errPartialFileCorrupted,
 			},
-			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "onlyfirstofpairPlusGarbage",
@@ -379,7 +379,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
 			},
-			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
+			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
 		},
 		towrite{
@@ -390,8 +390,8 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantErr: false,
 				errkind: nil, // file uploaded fully with one write
 			},
-			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 1000}),
+			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "inPairFirstOffsetIsBigger",
@@ -401,8 +401,8 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantErr: true,
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
-			rec: tobytes(JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 1000},
-				JournalRecordVer2{Action: successwriting, Startoffset: 10, Count: 1000}),
+			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000},
+				journalrecordver2{Action: successwriting, Startoffset: 10, Count: 1000}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinPairFirstOffsetIsBigger",
@@ -413,10 +413,10 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 500}),
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 500, Count: 500}),
 		},
 		towrite{
 			dcase: dcase{name: "ManyPairsinLastPairIncomplete",
@@ -427,9 +427,9 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // corrupt
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -441,10 +441,10 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -456,10 +456,10 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: currentAction(99), Startoffset: 501, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: currentAction(99), Startoffset: 501, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 501, Count: 500},
 			),
 		},
 		towrite{
@@ -471,10 +471,10 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: errPartialFileCorrupted, // there is an error, action is wrong
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 499},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 499},
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 500, Count: 499},
+				journalrecordver2{Action: startedwriting, Startoffset: 500, Count: 499},
 			),
 		},
 		towrite{
@@ -486,10 +486,10 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				errkind: nil, // no error
 			},
 			rec: tobytes(
-				JournalRecordVer2{Action: startedwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 0, Count: 500},
-				JournalRecordVer2{Action: startedwriting, Startoffset: 500, Count: 500},
-				JournalRecordVer2{Action: successwriting, Startoffset: 500, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 0, Count: 500},
+				journalrecordver2{Action: startedwriting, Startoffset: 500, Count: 500},
+				journalrecordver2{Action: successwriting, Startoffset: 500, Count: 500},
 			),
 		},
 	}
@@ -503,7 +503,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	ret := make(map[string]towrite) // a return, map[filename]towrite
 
 	// next is a start header of a log file
-	startrecord := StartStructVer2{VersionBytes: structversion2,
+	startrecord := startstructver2{VersionBytes: structversion2,
 		VersionBytesEnd:         structversion2,
 		TotalExpectedFileLength: 1000}
 

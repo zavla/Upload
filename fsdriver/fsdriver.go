@@ -37,22 +37,19 @@ const (
 	successwriting currentAction = 2
 )
 
-// ---------------Log file versions BEGIN
-// next is versions of journal file
+// VERSIONS of journal
 const (
 	structversion1 uint32 = 0x00000022 + iota // defines log records version, if version changes between downloads
 	structversion2
 )
 
-// what is the last journal file version this fsdriver supports?
+// This fsdriver supports:
+// Must be set by programmer in case of journal version change.
 const supportsLatestVer uint32 = structversion2
 
-// ---------------Log file versions END
-
-// next go several versions of JournalRecordXXX
-
 // JournalRecord is a record in log file.
-// This is always the latest version than can hold all old versions of record.
+// This struct always can hold all old versions of journal records.
+// Used as a way to pass all versions between functions.
 type JournalRecord struct {
 	Action      currentAction
 	Startoffset int64
@@ -60,37 +57,21 @@ type JournalRecord struct {
 	Crc32       int32
 }
 
-// JournalRecordVer1 this is a record version 1
-type JournalRecordVer1 struct {
-	Action      currentAction
-	Startoffset int64
-	Count       int64
+// startstruct is a header record of journal file.
+// startstruct can hold every old version of journal header.
+// Used to pass header between functions.
+type startstruct struct {
+	VersionBytes            uint32
+	TotalExpectedFileLength int64
+	Sha1                    [20]byte
+	VersionBytesEnd         uint32
 }
 
-// Ver1 translates JournalRecord to old version 1
-func (r JournalRecord) Ver1() JournalRecordVer1 {
-	return JournalRecordVer1{
-		Action:      r.Action,
-		Startoffset: r.Startoffset,
-		Count:       r.Count,
-	}
-}
-
-// JournalRecordVer2 this is a record version 2
-type JournalRecordVer2 struct {
-	Action      currentAction
-	Startoffset int64
-	Count       int64
-	Crc32       int32
-}
-
-// Ver2 translates JournalRecord to old version 2
-func (r JournalRecord) Ver2() JournalRecordVer2 {
-	return JournalRecordVer2{
-		Action:      r.Action,
-		Startoffset: r.Startoffset,
-		Count:       r.Count,
-		Crc32:       r.Crc32,
+// NewStartStruct returns header for new journal file, which will be of the last version.
+func NewStartStruct() *startstruct {
+	return &startstruct{
+		VersionBytes:    supportsLatestVer,
+		VersionBytesEnd: supportsLatestVer,
 	}
 }
 
@@ -105,7 +86,7 @@ type FileState struct {
 	Startoffset int64
 }
 
-// NewFileState creates FileState with parameters
+// NewFileState creates FileState with parameters. A kind of constructor.
 func NewFileState(filesize int64, bsha1 []byte, startoffset int64) *FileState {
 	return &FileState{
 		fileProperties: fileProperties{FileSize: filesize, Sha1: bsha1},
@@ -113,58 +94,9 @@ func NewFileState(filesize int64, bsha1 []byte, startoffset int64) *FileState {
 	}
 }
 func (s *FileState) Setoffset(offset int64) *FileState {
-	//reciever modified
+	//reciever is modified
 	s.Startoffset = offset
 	return s
-}
-
-//---------------StartStruct versions
-// StartStruct is a start record in log file.
-// Holds journal file version number
-// This a a header of the journal file.
-// StartStruct can hold every old version @ver.
-type StartStruct struct {
-	VersionBytes            uint32
-	TotalExpectedFileLength int64
-	Sha1                    [20]byte
-	VersionBytesEnd         uint32
-}
-type StartStructVer1 struct {
-	VersionBytes            uint32
-	TotalExpectedFileLength int64
-	VersionBytesEnd         uint32
-}
-type StartStructVer2 struct {
-	VersionBytes            uint32
-	TotalExpectedFileLength int64
-	Sha1                    [20]byte
-	VersionBytesEnd         uint32
-}
-
-func (s StartStruct) Ver1() StartStructVer1 {
-	return StartStructVer1{
-		VersionBytes:            s.VersionBytes,
-		VersionBytesEnd:         s.VersionBytesEnd,
-		TotalExpectedFileLength: s.TotalExpectedFileLength,
-	}
-}
-func (s StartStruct) Ver2() StartStructVer2 {
-	return StartStructVer2{
-		VersionBytes:            s.VersionBytes,
-		VersionBytesEnd:         s.VersionBytesEnd,
-		TotalExpectedFileLength: s.TotalExpectedFileLength,
-		Sha1:                    s.Sha1,
-	}
-
-}
-
-//---------------StartStruct versions
-
-func NewStartStruct() *StartStruct {
-	return &StartStruct{
-		VersionBytes:    structversion1,
-		VersionBytesEnd: structversion1,
-	}
 }
 
 //---------------------------------
@@ -270,20 +202,16 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 			curlen = l - i*lenhunk
 		}
 		if curlen > 0 {
+			// newbytes[from:to] into actual file
+			from := i * lenhunk
+			to := from + curlen
+			// TODO(zavla): CRC32 newbytes[from:to] !!!
+			// OR sha1 newbytes and store a file with name==sha1 of a block
 			// add step1 into journal = "write begin"
 			destinationrecord.Count = int64(curlen)
 			err := addRecordToJournalFile(wp, startedwriting, ver, *destinationrecord)
 			if err != nil {
 				return totalbyteswritten, err
-			}
-
-			// add newbytes into actual file
-			from := i * lenhunk
-			to := from + curlen
-
-			minlen := 16
-			if minlen > curlen {
-				minlen = curlen
 			}
 
 			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)

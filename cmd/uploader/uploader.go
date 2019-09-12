@@ -139,7 +139,8 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 			continue // retries
 		}
 
-		resp.Body.Close()
+		// TODO(zavla): when to close body ???
+		//???resp.Body.Close()
 
 		log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
@@ -284,13 +285,14 @@ func main() {
 		close(chNames)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
-	// TODO(zavla): talkative errors?
-	// TODO(zavla): store partial files aside?
+	// TODO(zavla): make errors more understandable
+	// TODO(zavla): store partial files aside? move them somewhere?
 	// TODO(zavla): run uploadserver as a Windows service.
-	// TODO(zavla): everyfunc to lowcase
+	// TODO(zavla): every in fact nonexported func make lowcase
 	// TODO(zavla): autotls?
-	// TODO(zavla): CSRF, do not mix POST request with URL parametres.
-	// TODO(zavla): chNames <-  GetFilenamesThatNeedUpload(chNames) send to chNames from gorouting
+	// TODO(zavla): CSRF, do not mix POST request with URL parametres!
+	// TODO(zavla): in server calculate speed of of upload.
+	// TODO(zavla): get rid of Sync() in fsdriver.AddBytesToFile() ?
 
 	runWorkers(chNames)
 	log.Println("uploader exited.")
