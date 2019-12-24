@@ -1,6 +1,7 @@
 package fsdriver
 
 import (
+	Error "Upload/errstr"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -43,7 +44,7 @@ func (r JournalRecord) Ver1() journalrecordver1 {
 // Check correctness of journal.
 // Every change to format of journal file uses its own func.
 func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
-
+	const op = "fsdriver.ReadCurrentStateFromJournalVer1()"
 	var startstruct startstructver1
 	var headersize = int64(binary.Size(startstructver1{})) //depends on header version
 	var recordsize = int64(binary.Size(journalrecordver1{}))
@@ -68,7 +69,7 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 		// No startstruct in header. error. File created but somehow without a startstruct header.
 		return retState,
 			correctrecordoffset,
-			errPartialFileVersionTagReadError
+			Error.E(op, err, errPartialFileVersionTagReadError, 0, "")
 	}
 
 	// Here there is a header.
@@ -95,12 +96,12 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 			if err == io.ErrUnexpectedEOF { // read ended unexpectedly
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					errPartialFileCorrupted
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			} else if err != nil && err != io.EOF { // read failed, use lastsuccessrecord
 				//returns previous good record
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					errPartialFileReadingError // we dont know why we cant read journal. may be its ok?.
+					Error.E(op, err, errPartialFileReadingError, 0, "") // we dont know why we cant read journal. may be its ok?.
 			}
 
 			// make sure offsets come in ascending order
@@ -110,7 +111,7 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 				// current record do not corresond to expected file size
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					errPartialFileCorrupted
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			case currrecord.Startoffset == prevrecord.Startoffset &&
 				currrecord.Action == successwriting &&
 				prevrecord.Action == startedwriting:
@@ -132,7 +133,7 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 				// we reach end of file. EOF is not an error in data. We have read the last record.
 				lasterr = nil
 				if maybeErr {
-					lasterr = errPartialFileCorrupted
+					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "")
 				}
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
@@ -141,14 +142,14 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 				// current record is bad.
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					errPartialFileCorrupted
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			} // end switch
 			prevrecord = currrecord // makes previous record a current one
 			// continue to next record
 		}
 	} else {
 		// incorrect header
-		return retState, correctrecordoffset, errPartialFileVersionTagReadError
+		return retState, correctrecordoffset, Error.E(op, err, errPartialFileVersionTagReadError, 0, "")
 	}
 }
 

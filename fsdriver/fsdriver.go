@@ -1,7 +1,7 @@
 package fsdriver
 
 import (
-	"Upload/errstr"
+	Error "Upload/errstr"
 	"crypto/sha1"
 	"encoding/binary"
 	"io"
@@ -15,16 +15,17 @@ import (
 //--------------------
 
 var (
-	errCouldNotAddToFile                = *errstr.NewError("fsdriver", 1, "Could not add to file")
-	errPartialFileVersionTagReadError   = *errstr.NewError("fsdriver", 5, "Transaction Log file header read error.")
-	errPartialFileReadingError          = *errstr.NewError("fsdriver", 6, "Transaction Log file reading error.")
-	errPartialFileEmpty                 = *errstr.NewError("fsdriver", 7, "Transaction Log file is empty.")
-	errPartialFileCorrupted             = *errstr.NewError("fsdriver", 8, "Transaction Log file corrupted.")
-	errPartialFileWritingError          = *errstr.NewError("fsdriver", 9, "Transaction Log file writing error.")
-	errFileOpenForReadWriteError        = *errstr.NewError("fsdriver", 10, "Open file for read and write error.")
-	errForbidenToUpdateAFile            = *errstr.NewError("fsdriver", 11, "File already exists, can't overwrite.")
-	errPartialFileCantDelete            = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
-	errPartialFileVersionTagUnsupported = *errstr.NewError("fsdriver", 13, "Transaction Log file version unsupported.")
+//errCouldNotAddToFile                = *errstr.NewError("fsdriver", 1, "Could not add to file")
+//errPartialFileVersionTagReadError   = *errstr.NewError("fsdriver", 5, "Transaction Log file header read error.")
+//errPartialFileReadingError          = *errstr.NewError("fsdriver", 6, "Transaction Log file reading error.")
+//errPartialFileEmpty                 = *errstr.NewError("fsdriver", 7, "Transaction Log file is empty.")
+//errPartialFileCorrupted             = *errstr.NewError("fsdriver", 8, "Transaction Log file corrupted.")
+//errPartialFileWritingError          = *errstr.NewError("fsdriver", 9, "Transaction Log file writing error.")
+
+//errFileOpenForReadWriteError        = *errstr.NewError("fsdriver", 10, "Open file for read and write error.")
+//errForbidenToUpdateAFile            = *errstr.NewError("fsdriver", 11, "File already exists, can't overwrite.")
+//errPartialFileCantDelete            = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
+//errPartialFileVersionTagUnsupported = *errstr.NewError("fsdriver", 13, "Transaction Log file version unsupported.")
 )
 
 const constwriteblocklen = (1 << 16) - 1
@@ -108,17 +109,18 @@ func GetPartialJournalFileName(name string) string {
 
 //rename to CreateNewLogFile
 func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) error {
+	const op = "fsdriver.BeginNewPartialFile()"
 	namepart := GetPartialJournalFileName(name)
 	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0)
 	if err != nil {
-		return errPartialFileWritingError
+		return Error.E(op, err, errPartialFileWritingError, 0, "")
 	}
 
 	defer wp.Close()
 	// version of journal file
 	err = binary.Write(wp, binary.LittleEndian, supportsLatestVer)
 	if err != nil {
-		return errPartialFileWritingError
+		return Error.E(op, err, errPartialFileWritingError, 0, "")
 	}
 	// fills header of journal file
 	aLogHeader := NewStartStruct()
@@ -127,7 +129,7 @@ func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) err
 
 	err = binary.Write(wp, binary.LittleEndian, *aLogHeader)
 	if err != nil {
-		return errPartialFileWritingError
+		return Error.E(op, err, errPartialFileWritingError, 0, "")
 	}
 	return nil
 }
@@ -245,6 +247,7 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 
 // addRecordToJournalFile writes binary representation of PartialFileInfo into log file.
 func addRecordToJournalFile(pfi io.Writer, step currentAction, ver uint32, info JournalRecord) error {
+	const op = "fsdriver.addRecordToJournalFile()"
 	// ver is a journal file version
 	// PartialFileInfo is always can hold all old versions.
 	// We transform it to a correct version.
@@ -259,11 +262,11 @@ func addRecordToJournalFile(pfi io.Writer, step currentAction, ver uint32, info 
 		infoVer1 := info.Ver1()
 		err = binary.Write(pfi, binary.LittleEndian, &infoVer1)
 	default:
-		return errPartialFileVersionTagUnsupported
+		return Error.E(op, err, errPartialFileVersionTagUnsupported, 0, "")
 	}
 
 	if err != nil {
-		return errCouldNotAddToFile
+		return Error.E(op, err, errPartialFileWritingError, 0, "")
 	}
 	return nil
 }
@@ -271,6 +274,7 @@ func addRecordToJournalFile(pfi io.Writer, step currentAction, ver uint32, info 
 // GetJournalFileVersion returns version of a journal file.
 // wp current pointer moved forward by uint32 bytes.
 func GetJournalFileVersion(wp io.Reader) (uint32, error) {
+	const op = "fsdriver.GetJournalFileVersion()"
 	var ret uint32
 	// what is the version of log file?
 
@@ -280,10 +284,10 @@ func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 		return supportsLatestVer, nil //uses last supported by this fsdriver version
 	}
 	if err != nil {
-		return 0, errPartialFileReadingError
+		return 0, Error.E(op, err, errPartialFileReadingError, 0, "")
 	}
 	if ret < structversion1 || ret > supportsLatestVer {
-		return 0, errPartialFileVersionTagUnsupported
+		return 0, Error.E(op, err, errPartialFileVersionTagUnsupported, 0, "")
 	}
 	return ret, nil // supported version
 }
@@ -292,7 +296,7 @@ func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 // It looks for correspondent journal file for this file,
 // and use it to get a file state of the file being uploaded.
 func MayUpload(storagepath string, name string) (FileState, error) {
-
+	const op = "fsdriver.MayUpload()"
 	namepart := GetPartialJournalFileName(name)
 
 	wa, err := OpenRead(storagepath, name)
@@ -305,7 +309,8 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	wastat, err := os.Stat(filepath.Join(storagepath, name))
 	if err != nil {
 		// can't get actual file properties, error
-		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
+		return *NewFileState(0, nil, 0),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 
 	// reads log(journal) file
@@ -315,13 +320,15 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		// (otherwise it has a journal file near)
 		// or there is a reading error
 
-		return *NewFileState(wastat.Size(), nil, wastat.Size()), errForbidenToUpdateAFile
+		return *NewFileState(wastat.Size(), nil, wastat.Size()),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 	defer wp.Close()
 
 	ver, err := GetJournalFileVersion(wp)
 	if err != nil { // unsupported version or read error
-		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
+		return *NewFileState(0, nil, 0),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 
 	var fromLog FileState
@@ -339,11 +346,12 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		// here we read journal file
 		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer2(ver, wp)
 	default: // unknown version
-		return *NewFileState(0, nil, 0), errForbidenToUpdateAFile
+		return *NewFileState(0, nil, 0), Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 
-	if errlog == errPartialFileReadingError { // can't do anything with journal file, even reading
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize), errForbidenToUpdateAFile // DO NOTHING with file
+	if ErrorError, ok := errlog.(*Error.Error); ok && ErrorError.Code == errPartialFileReadingError { // can't do anything with journal file, even reading
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // DO NOTHING with file
 	}
 
 	// Here struct fromLog has last correct offset of the file being uploaded, fromLog.Startoffset.
@@ -364,18 +372,21 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		}
 
 		// here journal file is considdered to be in corrupted state
-		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()), errForbidenToUpdateAFile // error in log file blocks updates
+		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // error in log file blocks updates
 	}
 	if wastat.Size() == fromLog.FileSize && fromLog.Startoffset == fromLog.FileSize {
 		// the actual file is correct and completly uploaded,
 		// but partial journal file still exists.
 		// TODO: move journal somewhere?
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile // totaly correct file
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // totaly correct file
 	}
 	if wastat.Size() > fromLog.FileSize {
 		// actual file already bigger then expected! Impossible unless a user has intervened.
 		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.", name, wastat.Size(), fromLog.Startoffset)
-		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile
+		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
+			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 	if wastat.Size() == fromLog.Startoffset {
 		// upload may continue
@@ -383,7 +394,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	}
 	// otherwise we need to read content of actual file and compare it with crc64 sums of every block in journal file
 	// TODO(zavla): run thorough content compare with md5 cheksums of blocks
-	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), errForbidenToUpdateAFile
+	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 }
 
 // GetFileSha1 gets sha1 of a file as a []byte

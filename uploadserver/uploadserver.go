@@ -1,7 +1,7 @@
 package uploadserver
 
 import (
-	"Upload/errstr"
+	Error "Upload/errstr"
 	"Upload/fsdriver"
 	"Upload/liteimp"
 	"bytes"
@@ -25,22 +25,22 @@ import (
 
 //-----has own errors
 var (
-	errNoError               = *errstr.NewError("uploadserver", 0, "Success.")
-	errCantStartDownload     = *errstr.NewError("uploadserver", 2, "Can not start download.")
-	errFileAlreadyExists     = *errstr.NewError("uploadserver", 3, "File is already fully downloaded.")
-	errCantDeletePartialFile = *errstr.NewError("uploadserver", 4, "Cant delete partial file.")
-	//--
-	errServerExpectsRestOfTheFile    = *errstr.NewError("uploadserver", 10, "Server expects rest of the file.")
-	errConnectionReadError           = *errstr.NewError("uploadserver", 11, "Connection read error.")
-	errWrongURLParameters            = *errstr.NewError("uploadserver", 12, "Query URL must set &filename parameter")
-	errRequestedFileIsBusy           = *errstr.NewError("uploadserver", 13, "Requested filename is busy at the moment")
-	errUnexpectedFuncReturn          = *errstr.NewError("uploadserver", 14, "Unexpected return from func.")
-	errContentHeaderRequired         = *errstr.NewError("uploadserver", 15, "Content-Length header required for your new file")
-	errServerFailToWriteAllbytes     = *errstr.NewError("uploadserver", 16, "Server failed to write all the bytes.")
-	errClientRequestShouldBindToJson = *errstr.NewError("uploadserver", 17, "Client request should bind to json.")
-	errSessionEnded                  = *errstr.NewError("uploadserver", 18, "Session has ended.")
-	errWrongFuncParameters           = *errstr.NewError("uploadserver", 19, "Wrong func parameters.")
-	errSha1CheckFailed               = *errstr.NewError("uploadserver", 20, "Sha1 check failed.")
+//errNoError               = *errstr.NewError("uploadserver", 0, "Success.")
+//errCantStartDownload     = *errstr.NewError("uploadserver", 2, "Can not start download.")
+//errFileAlreadyExists     = *errstr.NewError("uploadserver", 3, "File is already fully downloaded.")
+//errCantDeletePartialFile = *errstr.NewError("uploadserver", 4, "Cant delete partial file.")
+//--
+//errServerExpectsRestOfTheFile    = *errstr.NewError("uploadserver", 10, "Server expects rest of the file.")
+//errConnectionReadError           = *errstr.NewError("uploadserver", 11, "Connection read error.")
+//errWrongURLParameters            = *errstr.NewError("uploadserver", 12, "Query URL must set &filename parameter")
+//errRequestedFileIsBusy           = *errstr.NewError("uploadserver", 13, "Requested filename is busy at the moment")
+//errUnexpectedFuncReturn          = *errstr.NewError("uploadserver", 14, "Unexpected return from func.")
+//errContentHeaderRequired         = *errstr.NewError("uploadserver", 15, "Content-Length header required for your new file")
+//errServerFailToWriteAllbytes     = *errstr.NewError("uploadserver", 16, "Server failed to write all the bytes.")
+//errClientRequestShouldBindToJson = *errstr.NewError("uploadserver", 17, "Client request should bind to json.")
+//errSessionEnded                  = *errstr.NewError("uploadserver", 18, "Session has ended.")
+//errWrongFuncParameters           = *errstr.NewError("uploadserver", 19, "Wrong func parameters.")
+//errSha1CheckFailed               = *errstr.NewError("uploadserver", 20, "Sha1 check failed.")
 )
 
 type stateOfFileUpload struct {
@@ -77,8 +77,8 @@ type writeresult struct {
 // Suppose to work within a thread that reads connection.
 // Exits when error or EOF.
 func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
-
-	// timeout set in http.Server{Timeout...}
+	const op = "uploadserver.recieveAndSendToChan()"
+	// timeout is set via http.Server{Timeout...}
 	defer close(chReciever)
 
 	blocklen := 3 * constrecieveblocklen
@@ -89,7 +89,7 @@ func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 		n, err := c.Read(b)         // usually reads Request.Body
 		if err != nil && err != io.EOF {
 
-			return errConnectionReadError // or timeout?
+			return Error.E(op, err, errConnectionReadError, 0, "") // or timeout?
 		}
 
 		if n > 0 {
@@ -238,10 +238,13 @@ func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
 	dir, name string,
 	whatwhere fsdriver.JournalRecord) (error, writeresult) {
 
+	const op = "uploadserver.startWriteStartRecieveAndWait()"
+
 	expectedcount := whatwhere.Count
 	if expectedcount < 0 { // should never happen, why we expect more than filesize
 		// check input params
-		currerr := errWrongFuncParameters.SetDetails("parameter 'whatIsInFile.Count' == %d", expectedcount)
+		helpmessage := fmt.Sprintf("The file offset in your request is wrong: %d.", expectedcount)
+		currerr := Error.E(op, nil, errWrongFuncParameters, Error.ErrKindInfoForUsers, helpmessage)
 		return currerr, writeresult{
 			count: 0,
 			err:   currerr,
@@ -322,7 +325,13 @@ func (param logLine) String() string {
 // In URL parameter "filename" is mandatory.
 // Example: curl.exe -X POST http://127.0.0.1:64000/upload?&Filename="sendfile.rar" -T .\sendfile.rar
 func ServeAnUpload(c *gin.Context) {
+	const op = "uploadserver.ServeAnUpload()"
 	strSessionId, err := c.Cookie(liteimp.KeysessionID)
+	loginFromUrl := c.Param("login")
+	_, exists := c.Get(gin.AuthUserKey)
+	if loginFromUrl != "" && !exists {
+		panic("Login in path exists but login is not authenticated.")
+	}
 	if err != nil || strSessionId == "" { // no previous session. Only new files expected.
 
 		//generate new cookie
@@ -353,12 +362,13 @@ func ServeAnUpload(c *gin.Context) {
 
 		}
 
-		// stale state
+		// stale state, we clear clientsstates map for this session
 		delete(clientsstates, strSessionId)
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true)
+		// we set cookie in response
 		c.Set(liteimp.KeysessionID, "")
 
-		c.JSON(http.StatusBadRequest, gin.H{"error": errSessionEnded.SetDetails("Requested session id %s is wrong.", strSessionId)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errSessionEnded, Error.ErrKindInfoForUsers, strSessionId)})
 		return
 
 	}
@@ -369,6 +379,7 @@ func ServeAnUpload(c *gin.Context) {
 // Expects in request from client a liteimp.QueryParamsToContinueUpload with data
 // correspondend to server's state of the file.
 func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFileUpload) {
+	const op = "uploadserver.requestedAnUploadContinueUpload()"
 	name := expectfromclient.name
 	storagepath := expectfromclient.path
 
@@ -379,7 +390,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 	_, loaded := usedfiles.LoadOrStore(name, true)
 	if loaded {
 		// file is already busy at the moment
-		c.JSON(http.StatusConflict, gin.H{"error": errRequestedFileIsBusy.SetDetails("Requested filename is busy at the moment: %s", name)})
+		c.JSON(http.StatusConflict, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, name)})
 		return
 	}
 
@@ -417,10 +428,10 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		// Сlient didn't request with proper params.
 		// We expecting URL parametres.
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
-		msgdetails := "" + string(jsonbytes)
+		helpmessage := "" + string(jsonbytes)
 		//
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
-		c.JSON(http.StatusBadRequest, gin.H{"error": errClientRequestShouldBindToJson.SetDetails("%s", msgdetails)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, err, errClientRequestShouldBindToJson, 0, helpmessage)})
 		return
 	}
 
@@ -471,7 +482,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			if !bytes.Equal(factsha1, wantsha1) {
 				// sha1 differs!!!
 				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", wantsha1, factsha1)})
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.E(op, nil, errSha1CheckFailed, Error.ErrKindInfoForUsers, "")})
 				return
 			}
 		}
@@ -493,8 +504,8 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 	delete(clientsstates, strSessionId)
 
 	jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
-	msgdetails := "" + string(jsonbytes)
-	c.JSON(http.StatusBadRequest, gin.H{"error": errServerExpectsRestOfTheFile.SetDetails("you need to specify URL parameters, %s", msgdetails)})
+	helpmessage := "" + string(jsonbytes)
+	c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errServerExpectsRestOfTheFile, Error.ErrKindInfoForUsers, helpmessage)})
 	return
 }
 
@@ -502,7 +513,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 // If file already exists requestAnUpload responds with a json liteimp.JsonFileStatus.
 // We expect the client to do one more request with the rest of the file.
 func requestedAnUpload(c *gin.Context, strSessionId string) {
-
+	const op = "uploadserver.requestedAnUpload()"
 	var req liteimp.RequestForUpload
 	err := c.ShouldBindQuery(&req)
 	if err != nil {
@@ -511,7 +522,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 		return // http request ends, wrong URL.
 	}
 	if req.Filename == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errWrongURLParameters.SetDetails("Expected url parameter &filename")})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errWrongURLParameters, Error.ErrKindInfoForUsers, "Expected parameter &filename")})
 		return
 	}
 
@@ -524,7 +535,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	_, loaded := usedfiles.LoadOrStore(name, true)
 	if loaded {
 		// file is already busy at the moment
-		c.JSON(http.StatusConflict, gin.H{"error": errRequestedFileIsBusy.SetDetails("Requested filename is busy at the moment: %s", name)})
+		c.JSON(http.StatusConflict, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, name)})
 		return
 	}
 	defer usedfiles.Delete(name) // clears sync.Map after http.Handler func exits.
@@ -552,7 +563,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	if lcontentstr != "" {
 		lcontent, err = strconv.ParseInt(lcontentstr, 10, 64)
 		if lcontent == 0 || err != nil {
-			c.JSON(http.StatusLengthRequired, gin.H{"error": errContentHeaderRequired})
+			c.JSON(http.StatusLengthRequired, gin.H{"error": Error.E(op, nil, errContentHeaderRequired, 0, "")})
 			return // client should make a new request
 		}
 	}
@@ -610,8 +621,8 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			// updqate client state
 			ptrstate := clientsstates[strSessionId]
 			ptrstate.filestatus.Startoffset = writeresult.count
-
-			c.JSON(http.StatusExpectationFailed, gin.H{"error": errServerFailToWriteAllbytes.SetDetails("Server has written %d bytes, expected number of bytes %d", writeresult.count, lcontent)})
+			helpmessage := fmt.Sprintf("Server has written %d bytes, but expected number of bytes was %d bytes.", writeresult.count, lcontent)
+			c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.E(op, nil, errServerFailToWriteAllbytes, Error.ErrKindInfoForUsers, helpmessage)})
 			return
 		}
 		// next check sha1
@@ -623,7 +634,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			if !bytes.Equal(factsha1, bytessha1) {
 				// sha1 differs!!!
 				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", bytessha1, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": errSha1CheckFailed.SetDetails("sha1 check failed: want = %x, has = %x", bytessha1, factsha1)})
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.E(op, nil, errSha1CheckFailed, Error.ErrKindInfoForUsers, "")})
 				return
 			}
 		}
@@ -655,10 +666,11 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 // waitForWriteToFinish waits for the end of write operation.
 // Returns: ok == true when there was written an expected count of bytes.
 func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) (retwriteresult writeresult, ok bool) {
+	const op = "uploadserver.waitForWriteToFinish()"
 	// asks-waits chan for the result
 	nbyteswritten := int64(0) // returns
 	ok = false                // returns
-	retwriteresult = writeresult{count: 0, err: errUnexpectedFuncReturn}
+	retwriteresult = writeresult{count: 0, err: Error.E(op, nil, errUnexpectedFuncReturn, 0, "")}
 
 	// waits for value in channel chWriteResult or chWriteResult be closed
 	select {

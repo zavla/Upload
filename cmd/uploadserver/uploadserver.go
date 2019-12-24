@@ -1,8 +1,15 @@
 package main
 
 import (
-	"Upload/errstr"
+	Error "Upload/errstr"
+	"Upload/httpDigestAuthentication"
+	"Upload/logins"
 	"Upload/uploadserver"
+	"crypto/md5"
+	"encoding/hex"
+	"fmt"
+
+	//"encoding/base64"
 	"flag"
 	"io"
 	"log"
@@ -19,16 +26,19 @@ var bindToAddress string
 //const bindToAddress = "1cprogrammer:8888"
 
 var (
-	errCantWriteLogFile = *errstr.NewError("uploadservermain", 0, "Can not start. Can't write to a log file.")
+//errCantWriteLogFile = Error.E("uploadservermain", nil, Error.ErrFileIO, "Can not start. Can't write to a log file.")
 )
 
 // server stores all the files here in sub dirs
 var storageroot string
+var configdir string
 
 func main() {
+	const op = "uploadserver.main()"
 	logname := flag.String("log", "", "log file path and name.")
 	flag.StringVar(&storageroot, "storageroot", "", "storage root path for files")
 	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified address:port")
+	flag.StringVar(&configdir, "configdir", "", "directory with configuration files")
 
 	flag.Parse()
 
@@ -46,7 +56,7 @@ func main() {
 		var err error
 		logfile, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
 		if err != nil { // do not start without log file
-			log.Fatal(errCantWriteLogFile.SetDetails("filename: %s", *logname))
+			log.Fatal(Error.E(op, err, errCantWriteLogFile, 0, *logname))
 		}
 		logwriter = io.MultiWriter(logfile, os.Stdout)
 
@@ -75,18 +85,36 @@ func main() {
 	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Printf("Can't find starting directory of server executable (readonly). %s", err)
+		log.Printf("Can't find starting directory of server executable (used readonly). %s", err)
 		return
 	}
 	uploadserver.RunningFromDir = rundir
+	// reads logins passwords
+	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(configdir, "logins.file"))
+	loginsMap := getMapOfLogins(loginsstruct)
 
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
 	router.Use(gin.LoggerWithWriter(logwriter),
 		gin.RecoveryWithWriter(logwriter))
+	// auth middleware. Gin executes a func for evey request.
+	router.Use(func(c *gin.Context) {
+		loginFromUrl := c.Param("login")
+		if loginFromUrl != "" {
+			//gin.BasicAuthForRealm(loginsMap, "upload")(c)
+			loginCheck(c, loginsMap)
+		}
+		c.Next()
+		// otherwise no authorization
+	})
+
+	// anonymous upload
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
-	router.Handle("GET", "/list", uploadserver.GetFileList)
+	// per user upload
+	router.Handle("GET", "/upload/*login", uploadserver.ServeAnUpload)
+	router.Handle("POST", "/upload/*login", uploadserver.ServeAnUpload)
+	router.Handle("GET", "/list/*login", uploadserver.GetFileList)
 
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{
@@ -97,9 +125,20 @@ func main() {
 		ReadHeaderTimeout: 60 * time.Second,
 		//MaxHeaderBytes: 1000,
 	}
-	s.ListenAndServe()
+	err = s.ListenAndServe()
+	if err != http.ErrServerClosed { // expects error
+		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
+	}
 	log.Println("Uploadserver main() exited.")
 
+}
+
+func getMapOfLogins(loginsstruct logins.Logins) map[string]logins.Login {
+	ret := make(map[string]logins.Login)
+	for _, l := range loginsstruct.Logins {
+		ret[l.Login] = l
+	}
+	return ret
 }
 
 func openStoragerootRw(storageroot string) (*os.File, error) {
@@ -114,4 +153,56 @@ func openStoragerootRw(storageroot string) (*os.File, error) {
 	}
 
 	return d, nil
+}
+
+func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
+	h := md5.New()
+	yyyy, mm, dd := time.Now().Date()
+	io.WriteString(h, fmt.Sprintf("%d:%d:%d", yyyy, mm, dd))
+	currentNonce := hex.EncodeToString(h.Sum(nil))
+
+	challenge := httpDigestAuthentication.ChallengeToClient{
+		Realm:     "upload",
+		Domain:    "upload.com",
+		Nonce:     currentNonce,
+		Opaque:    "",
+		Stale:     "",
+		Algorithm: "MD5",
+		Qop:       "auth",
+	}
+	authorization := c.GetHeader("Authorization")
+	if authorization == "" {
+		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(challenge)
+		c.Header("WWW-Authenticate", wwwauthenticate)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	creds, err := httpDigestAuthentication.ParseStringIntoCredentialsFromClient(authorization)
+	if err != nil {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		// TODO: need log
+		return
+	}
+	creds.Method = c.Request.Method // client used its method in hash
+
+	currlogin := logins.Login{}
+	currlogin, ok := loginsmap[creds.Username]
+	if !ok {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		// TODO: need log
+		return
+	}
+	access, err := httpDigestAuthentication.CheckCredentialsFromClient(&challenge, creds, currlogin.Passwordhash)
+	if err != nil {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		// TODO: need log
+		return
+	}
+	if !access {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		// TODO: need log
+		return
+	}
+	//granted
+	c.Set(gin.AuthUserKey, creds.Username) // grants a login
 }

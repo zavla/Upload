@@ -1,6 +1,7 @@
 package fsdriver
 
 import (
+	Error "Upload/errstr"
 	"bytes"
 	"encoding/binary"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 const (
 	testdata = "./testdata"
+	op       = "fsdriver_test"
 )
 
 type args struct {
@@ -68,7 +70,7 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 		wantRetState: FileState{Startoffset: 94207, fileProperties: fileProperties{FileSize: 16961536}},
 		wantJOff:     0xDC + 4,
 		wantErr:      true,
-		errkind:      errPartialFileCorrupted,
+		errkind:      Error.E(op, nil, errPartialFileCorrupted, 0, ""),
 		wantVer:      structversion1,
 	})
 
@@ -184,7 +186,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
-				errkind:      errPartialFileCorrupted,
+				errkind:      Error.E(op, nil, errPartialFileCorrupted, 0, ""),
 			},
 			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
@@ -194,7 +196,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // file ended unexpectedly? use last success record
 			},
 			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
@@ -216,7 +218,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, expects last successful record
 			},
 			rec: tobytes(journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 1000},
 				journalrecordver1{Action: successwriting, Startoffset: 10, Count: 1000}),
@@ -227,7 +229,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, expects last successful record
 			},
 			rec: tobytes(
 				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -241,7 +243,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // corrupt
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // corrupt
 			},
 			rec: tobytes(
 				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -255,7 +257,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, action is wrong
 			},
 			rec: tobytes(
 				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -270,7 +272,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, Action is wrong
 			},
 			rec: tobytes(
 				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -285,7 +287,7 @@ func createtestdata(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, action is wrong
 			},
 			rec: tobytes(
 				journalrecordver1{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -367,7 +369,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantRetState: FileState{Startoffset: 0, fileProperties: fileProperties{FileSize: 1000}},
 				wantJOff:     startlen + 0,
 				wantErr:      true,
-				errkind:      errPartialFileCorrupted,
+				errkind:      Error.E(op, nil, errPartialFileCorrupted, 0, ""),
 			},
 			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000}),
 		},
@@ -377,7 +379,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // file ended unexpectedly? use last success record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // file ended unexpectedly? use last success record
 			},
 			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000},
 				[]byte{01, 02, 03}),
@@ -399,7 +401,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 0,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, expects last successful record
 			},
 			rec: tobytes(journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 1000},
 				journalrecordver2{Action: successwriting, Startoffset: 10, Count: 1000}),
@@ -410,7 +412,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, expects last successful record
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, expects last successful record
 			},
 			rec: tobytes(
 				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -424,7 +426,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // corrupt
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // corrupt
 			},
 			rec: tobytes(
 				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -438,7 +440,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, action is wrong
 			},
 			rec: tobytes(
 				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -453,7 +455,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, Action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, Action is wrong
 			},
 			rec: tobytes(
 				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},
@@ -468,7 +470,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 				wantJOff:     startlen + 2*recordlen,
 
 				wantErr: true,
-				errkind: errPartialFileCorrupted, // there is an error, action is wrong
+				errkind: Error.E(op, nil, errPartialFileCorrupted, 0, ""), // there is an error, action is wrong
 			},
 			rec: tobytes(
 				journalrecordver2{Action: startedwriting, Startoffset: 0, Count: 500},

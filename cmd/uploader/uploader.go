@@ -1,15 +1,14 @@
 package main
 
 import (
-	"Upload/errstr"
+	Error "Upload/errstr"
 	"Upload/fsdriver"
 	"Upload/liteimp"
-	"bytes"
-	"crypto/sha1"
+	//"crypto/sha1"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"hash"
+	//"hash"
 	"io"
 	"log"
 	"net/http"
@@ -25,66 +24,42 @@ import (
 )
 
 var (
-	errServerRespondedWithBadJson = *errstr.NewError("uploader", 1, "Server responded with bad json structure.")
-	errStatusContinueExpected     = *errstr.NewError("uploader", 2, "We expect status 100-Continue.")
-	errCantOpenFileForReading     = *errstr.NewError("uploader", 3, "Can't open file for reading.")
-	errCantGetFileProperties      = *errstr.NewError("uploader", 4, "Can't get file properties.")
-	errCantCreateHttpRequest      = *errstr.NewError("uploader", 5, "Can't create http.Request")
-	errCantConnectToServer        = *errstr.NewError("uploader", 6, "Can't connect to http server")
-	errFileSeekErrorOffset        = *errstr.NewError("uploader", 7, "File seek offset error.")
-	errServerDidNotAdmitUpload    = *errstr.NewError("uploader", 8, "Server did not admit upload. We can't be sure of successfull upload.")
-	errNumberOfRetriesExceeded    = *errstr.NewError("uploader", 9, "Number of retries exceeded.")
-	errServerForbiddesUpload      = *errstr.NewError("", 10, "Server fobidded upload. File already exists.")
-)
+// errors equality by Code(or Descr), not by value, because values may be return from goroutines simultaneously.
+//errServerRespondedWithBadJson = Error.E("uploader", nil, Error.ErrEncodingDecoding,"Server responded with bad json structure.")
+//errStatusContinueExpected     = *errstr.NewError("uploader", 2, "We expect status 100-Continue.")
+//errServerDidNotAdmitUpload    = *errstr.NewError("uploader", 8, "Server did not admit upload. We can't be sure of successfull upload.")
 
-// jar holds cookies and used by http.Client to get cookies from Response and to set cookies into Request
-var jar cookiejar.Jar
+)
 
 //const uploadServerURL = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
 var uploadServerURL = `http://127.0.0.1:64000/upload`
 
 //const uploadServerURL = `http://myapp/upload`
 
-// eoe = "exit on error"
-// args are pairs of key,value. Even number of args expected.
-func eoe(exit bool, err error, descr string, args ...interface{}) {
-	if err != nil {
-		var logline bytes.Buffer
-		logline.WriteString(fmt.Sprintf("%s\n%s\n", descr, err))
-		count := len(args)
-		for i := 0; i < count/2; i++ {
-			logline.WriteString(fmt.Sprintf("%s=%s; ", args[i], args[i+1]))
-		}
-		log.Println(logline)
-		if exit {
-			log.Fatal()
-		} //exits
-	}
-	return
-}
-
-// SendAFile sends file to a micro service.
+// sendAFile sends file to a service Upload.
 // jar holds cookies from server http.Responses and use them in http.Requests
-func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byte) error {
+func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []byte) error {
+	// I use op as the first argument to Error.E()
+	const op = "uploader.sendAFile()"
 	// opens file
 	_, name := filepath.Split(fullfilename)
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
 	if err != nil {
-		return errCantOpenFileForReading.SetDetails("filename=%s", fullfilename)
+		return Error.E(op, err, ErrCantOpenFileForReading, 0, "")
 	}
 	// closes file on exit
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// reads file size
 	stat, err := f.Stat()
 	if err != nil {
-		return errCantGetFileProperties.SetDetails("filename=%s", fullfilename)
+		return Error.E(op, err, ErrCantGetFileProperties, 0, "")
 	}
 
 	// creates http.Request
-	req, err := http.NewRequest("POST", uploadServerURL, f) // reads body from f, f will be close after http.Client.Do
+	req, err := http.NewRequest("POST", toURL, f) // reads body from f, f will be close after http.Client.Do
 	if err != nil {
-		return errCantCreateHttpRequest
+		return Error.E(op, err, ErrCantCreateHttpRequest, 0, "")
 	}
 	// use context to define timeout of total http.Request
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -114,24 +89,24 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
 	}
 
-	waitBeforRetrySec := time.Duration(10)
+	waitBeforeRetry := time.Duration(10)
 
-	ret := errNumberOfRetriesExceeded // func return value
-	// cycle for some errors that can be tolarated
+	ret := Error.E(op, err, ErrNumberOfRetriesExceeded, 0, "")
+	// cycle for some errors that can be tolerated
 	for i := 0; i < 3; i++ {
 
 		req.Body = f
 		// makes the first request, without cookie or makes a retry request with sessionID in cookie on steps 2,3...
 		resp, err := cli.Do(req)       // sends a file f in the body,  closes file f
 		if err != nil || resp == nil { // response may be nil when transport fails with timeout (timeout while i am debugging the upload server)
-			ret = *errCantConnectToServer.SetDetailsSubErr(err, "server %s", req.URL)
+			ret = Error.E(op, err, ErrCantConnectToServer, 0, "")
 			log.Printf("%s", ret)
-			time.Sleep(waitBeforRetrySec * time.Second) // waits
+			time.Sleep(waitBeforeRetry * time.Second) // waits
 
 			// opens file again
 			f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 			if err != nil {
-				ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "file %s", fullfilename)
+				ret = Error.E(op, err, ErrCantOpenFileForReading, 0, "")
 				log.Printf("%s", ret)
 				return ret
 			}
@@ -144,7 +119,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 
 		log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			return nil // upload completed
 		}
@@ -152,20 +127,20 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 		// opens file again
 		f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 		if err != nil {
-			ret = *errCantOpenFileForReading.SetDetailsSubErr(err, "Can't open the file: %s", fullfilename)
+			ret = Error.E(op, err, ErrCantOpenFileForReading, 0, "")
 			log.Printf("%s", ret)
 			return ret
 		}
 
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict
-			var bodyjson liteimp.JsonFileStatus
+			//var bodyjson liteimp.JsonFileStatus
 			// server responded "a file already exists"
-			fromserverjson, err, debugbytes := UnmarshalBody(resp) // unmarshals to JsonFileStatus,closes body
+			fromserverjson, err, debugbytes := decodeJSONinBody(resp) // unmarshals to JsonFileStatus,closes body
 			// response Body (resp.Body) here is closed
 			if err != nil {
 				// logs incorrect server respone
-				msgbytes, _ := json.MarshalIndent(bodyjson, "", " ")
-				ret = *errServerRespondedWithBadJson.SetDetailsSubErr(err, "want = %s", string(msgbytes))
+				//msgbytes, _ := json.MarshalIndent(bodyjson, "", " ")
+				ret = Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
 				log.Printf("Got = %s\n%s", string(debugbytes), ret)
 				return ret // do not retry, just return
 			}
@@ -174,7 +149,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 			startfrom := fromserverjson.Startoffset
 			newoffset, err := f.Seek(startfrom, 0) // 0 = seek from the begining
 			if err != nil || newoffset != startfrom {
-				ret = *errFileSeekErrorOffset.SetDetailsSubErr(err, "server wants offset=%d , we can only offset to=%d", startfrom, newoffset)
+				ret = Error.E(op, err, ErrFileSeekErrorOffset, 0, "")
 				log.Printf("%s", ret)
 				return ret // do not retry, just return
 			}
@@ -191,7 +166,7 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 			continue // cycles to next retry
 
 		} else if resp.StatusCode == http.StatusForbidden {
-			return errServerForbiddesUpload
+			return Error.E(op, nil, ErrServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
 		} else {
 			log.Printf("Server responded with error, status: %s", resp.Status)
 			b := make([]byte, 500)
@@ -200,36 +175,43 @@ func SendAFile(addr string, fullfilename string, jar *cookiejar.Jar, bsha1 []byt
 			log.Printf("%s", string(b))
 		}
 
-		time.Sleep(waitBeforRetrySec * time.Second)
+		time.Sleep(waitBeforeRetry * time.Second)
 		// upload failed or timed out? retry with current cookie
 	}
 	return ret
 
 }
 
-func UnmarshalBody(resp *http.Response) (value *liteimp.JsonFileStatus, err error, debugbytes []byte) {
+func decodeJSONinBody(resp *http.Response) (value *liteimp.JsonFileStatus, err error, debugbytes []byte) {
+
+	const op = "uploader.decodeJSONinBody()"
+
 	value = &liteimp.JsonFileStatus{} // struct
 	if resp.ContentLength == 0 {
-		return value, errServerRespondedWithBadJson, nil
+		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
+		return value, ret, nil
 	}
 	b := make([]byte, resp.ContentLength) // expects that server has responded with some json
 	maxjsonlen := int64(4000)
 	ioreader := io.LimitReader(resp.Body, maxjsonlen)
 
 	_, err = ioreader.Read(b)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if !(err == nil || err == io.EOF) {
-		return value, errServerRespondedWithBadJson, nil
+		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
+		return value, ret, nil
 	}
 	// unmarshal server json response
 	if err := json.Unmarshal(b, &value); err != nil {
-		return value, errServerRespondedWithBadJson, b
+		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
+		return value, ret, b
 	}
 	return value, nil, nil
 
 }
 
 func main() {
+	const op = "main()"
 	logname := flag.String("log", "", "log file path and name.")
 	file := flag.String("file", "", "a file you want to upload")
 	dirtomonitor := flag.String("dir", "", "a directory which to monitor for new files to upload")
@@ -237,6 +219,7 @@ func main() {
 	flag.Parse()
 	if len(os.Args) == 0 {
 		flag.PrintDefaults()
+		os.Exit(1)
 		return
 	}
 
@@ -258,17 +241,19 @@ func main() {
 	} else {
 		var err error
 		flog, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE, os.ModeAppend)
-		eoe(true, err, "Can't start without log file", "file", *logname) // do not start without log file
-
+		log.Printf("%s", Error.E(op, err, ErrCantOpenFileForReading, 0, ""))
+		os.Exit(1)
+		return
 	}
 
 	// from hereafter use log for messages
 	log.SetOutput(flog)
-	defer flog.Close()
+	defer func() { _ = flog.Close() }()
 
 	// check required parameters
 	if *file == "" && *dirtomonitor == "" {
 		log.Printf("--file or --dir must be specified.")
+		os.Exit(1)
 		return
 	}
 
@@ -280,7 +265,7 @@ func main() {
 	}
 	if *dirtomonitor != "" {
 		// walk a dir
-		go GetFilenamesThatNeedUpload(*dirtomonitor, chNames) // closes chNames after adding all files
+		go getFilenamesToupload(*dirtomonitor, chNames) // closes chNames after adding all files
 	} else {
 		close(chNames)
 	}
@@ -295,9 +280,10 @@ func main() {
 	// TODO(zavla): get rid of Sync() in fsdriver.AddBytesToFile() ?
 
 	runWorkers(chNames)
-	log.Println("uploader exited.")
+	log.Println("Normal exit.")
 }
 
+// runWorkers starts goroutines
 func runWorkers(ch chan string) {
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
@@ -308,15 +294,19 @@ func runWorkers(ch chan string) {
 	wg.Wait()
 
 }
+
+// worker takes from channel and sends files
 func worker(wg *sync.WaitGroup, ch chan string) {
 	defer wg.Done()
 
 	for name := range ch {
-		PrepareAndSendAFile(name)
+		prepareAndSendAFile(name)
 	}
 	return
 }
-func PrepareAndSendAFile(filename string) {
+
+func prepareAndSendAFile(filename string) {
+	const op = "uploader.prepareAndSendAFile()"
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
@@ -327,57 +317,46 @@ func PrepareAndSendAFile(filename string) {
 	//compute SHA1 of a file
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
-		log.Printf("Can't read file. %s", err)
-
+		log.Printf("%s", Error.E(op, err, ErrCantOpenFileForReading, 0, ""))
 		return
 	}
 
-	err = SendAFile(uploadServerURL, fullfilename, jar, bsha1)
+	err = sendAFile(uploadServerURL, fullfilename, jar, bsha1)
 
 	if err == nil {
-		log.Printf("upload succsessful: file %s", fullfilename)
+		log.Printf("Upload succsessful: %s", fullfilename)
 
 		if err := MarkFileAsUploaded(fullfilename); err != nil {
 			// a non critical error
-			log.Printf("Can's set file attribute: %s", err)
+			log.Printf("%s", Error.E(op, err, ErrMarkFileFailed, 0, ""))
 		}
+		// SUCCESS
 		return
 	}
-	if err == errServerForbiddesUpload {
-		log.Printf("Server do not allow this file upload: %s", fullfilename)
-		return
-	}
+
+	log.Printf("%s", err)
 	return
 }
 
-func GetFileSHA1(fullfilename string) (hash.Hash, error) {
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY|os.O_EXCL, 0)
-
-	if err != nil {
-
-		return nil, err
-	}
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
-	}
-	return h, nil
-}
-
-// to chNames <-
-func GetFilenamesThatNeedUpload(dir string, chNames chan<- string) {
+// getFilenamesToupload collects files names to channel chNames <-
+func getFilenamesToupload(dir string, chNames chan<- string) {
+	const op = "uploader.getFilenamesToupload()"
 	defer close(chNames)
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil // next file please
 		}
-		// TODO(zavla): decide how to store "archive" attribute in linux
+		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
 		isarchiveset, _ := GetArchiveAttribute(path)
 		if isarchiveset {
 			chNames <- path
 		}
 		return nil // next file please
 	})
+	if err != nil {
+		close(chNames)
+		log.Printf("%s", Error.E(op, err, ErrReadingDirectory, 0, ""))
+	}
 
 	return
 }
