@@ -1,9 +1,12 @@
 //go:generate stringer -type Kind
+
+//Package errstr is used in every packages of he module to represent errors.
 package errstr
 
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 )
 
 // A New way of doing errors things.
@@ -21,13 +24,20 @@ const (
 )
 const (
 	// Exported errors for all packages:
-	// If there is no need to work with specific error - I use just a group.
+	// If there is no need to work with specific error - I use one of this groups of errors.
 	// Error groups used by all packages and are exported.
+
+	// ErrNotFound means 'not found' group of errors. Used from other packages.
 	ErrNotFound int16 = iota
+	// ErrFileIO for errors in reading or writing
 	ErrFileIO
+	// ErrPermission for errors in permission(rights)
 	ErrPermission
+	// ErrNetworkIO for errors in networking
 	ErrNetworkIO
+	// ErrEncodingDecoding for errors in various encoding(marchaling).
 	ErrEncodingDecoding
+	// ErrLimits for errors concerning limits
 	ErrLimits
 )
 
@@ -52,11 +62,13 @@ func E(op string, err error, code int16, kind Kind, descr string) error {
 type Kind uint8
 
 const (
+	// ErrUseKindFromBaseError not sure about this
 	ErrUseKindFromBaseError Kind = iota
-	//------- informational messages
+	// ErrKindInfoForUsers not sure about this
 	ErrKindInfoForUsers
 )
 
+// Error struct represents an error all over this module.
 type Error struct {
 	// Op is a function name in with error has occured. Makes finding error origins easy.
 	Op    string // current function name that failed ex. fsdriver.func1(), for ease of failures origin identification
@@ -70,16 +82,21 @@ type Error struct {
 func (e *Error) Error() string {
 	const newline = ":\n\t"
 	var b bytes.Buffer
+	b.WriteString("Error: ")
 	b.WriteString(e.Op)
+
 	b.WriteString(": ")
+	b.WriteString(strconv.Itoa(int(e.Code)))
+
+	b.WriteString(": ")
+	b.WriteString(e.Kind.String())
+
+	b.WriteString(":")
 	b.WriteString(e.Descr)
+
+	b.WriteString(":")
 	if I18 != nil {
-		b.WriteString(":")
 		b.WriteString(I18[e.Code])
-	}
-	b.WriteString(": ")
-	if e.Kind != ErrUseKindFromBaseError {
-		b.WriteString(e.Kind.String())
 	}
 
 	b.WriteString(newline)
@@ -98,7 +115,7 @@ func (e *Error) Unwrap() error {
 var I18 = make(map[int16]string)
 
 //------------------------------------------
-// Next code is an old way of doing errors things in this package.
+// Next line of code are an old way of working with errors in this module.
 
 // NewError creates a var in your code
 func NewError(group string, code int, s string) *errstr {

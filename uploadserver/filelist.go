@@ -21,7 +21,7 @@ type smallinf struct {
 // GetFileList is a gin.HandlerFunc.
 // Returns a response with html page "list of files"
 func GetFileList(c *gin.Context) {
-	storagepath := GetPathWhereToStore()
+	storagepath := GetPathWhereToStore(c)
 
 	var listFilter liteimp.RequestForFileList
 	err := c.ShouldBindQuery(&listFilter)

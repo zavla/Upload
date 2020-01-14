@@ -33,8 +33,8 @@ type journalrecordver2 struct {
 	Crc32       int32
 }
 
-// Ver2 translates JournalRecord to old version 2
-func (r JournalRecord) Ver2() journalrecordver2 {
+// ver2 translates JournalRecord to old version 2
+func (r JournalRecord) ver2() journalrecordver2 {
 	return journalrecordver2{
 		Action:      r.Action,
 		Startoffset: r.Startoffset,

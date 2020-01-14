@@ -55,7 +55,8 @@ var clientsstates map[string]stateOfFileUpload
 var usedfiles sync.Map
 var emptysha1 [20]byte
 
-// Storageroot holds path to file store for this instance
+// Storageroot holds path to file store for this instance.
+// Must be absolute.
 var Storageroot string
 
 // RunningFromDir used to access html templates
@@ -490,11 +491,13 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.GetPartialJournalFileName(name)
 		namepartnew := getFinalNameOfJournalFile(namepart, factsha1)
-		err = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+		newabsfilename := filepath.Join(storagepath, namepartnew)
+
+		err = os.Rename(filepath.Join(storagepath, namepart), newabsfilename)
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
 		}
-
+		log.Println(logline(c,fmt.Sprintf("Successfull upload: %s",newabsfilename)))
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 	}
@@ -540,7 +543,14 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	}
 	defer usedfiles.Delete(name) // clears sync.Map after http.Handler func exits.
 
-	storagepath := GetPathWhereToStore()
+	storagepath := GetPathWhereToStore(c)
+	// storagepath must exist
+	err = os.MkdirAll(storagepath,0700)
+	if err!=nil{
+		log.Println(logline(c,fmt.Sprintf("Can't create directory: %",err)))
+		return
+	}
+
 	// Get a struct with the file current size and state.
 	// File may be partially uploaded.
 	whatIsInFile, err := fsdriver.MayUpload(storagepath, name)
@@ -597,7 +607,8 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			}
 		}
 		// next fill a header of journal file
-		err := fsdriver.BeginNewPartialFile(storagepath, name, lcontent, bytessha1)
+
+		err := fsdriver.CreateNewPartialJournalFile(storagepath, name, lcontent, bytessha1)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -643,11 +654,12 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 		namepart := fsdriver.GetPartialJournalFileName(name)
 		namepartnew := getFinalNameOfJournalFile(namepart, factsha1)
-
-		err = os.Rename(filepath.Join(storagepath, namepart), filepath.Join(storagepath, namepartnew))
+		newabsfilename := filepath.Join(storagepath, namepartnew)
+		err = os.Rename(filepath.Join(storagepath, namepart), newabsfilename)
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
 		}
+		log.Println(logline(c,fmt.Sprintf("Successfull upload: %s",newabsfilename)))
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 
@@ -689,8 +701,12 @@ func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) 
 }
 
 // GetPathWhereToStore returns a subdir of current user
-func GetPathWhereToStore() string {
-	return Storageroot //TODO(zavla): change per user?
+func GetPathWhereToStore(c *gin.Context) string {
+	username := c.GetString(gin.AuthUserKey)
+	if username == "" {
+		return Storageroot
+	}
+	return filepath.Join(Storageroot, filepath.Base(username))
 }
 
 // getFinalNameOfJournalFile used to rename journal file when upload successfully completes.

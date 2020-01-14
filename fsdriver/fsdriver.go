@@ -4,6 +4,7 @@ import (
 	Error "Upload/errstr"
 	"crypto/sha1"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -68,8 +69,8 @@ type startstruct struct {
 	VersionBytesEnd         uint32
 }
 
-// NewStartStruct returns header for new journal file, which will be of the last version.
-func NewStartStruct() *startstruct {
+// newStartStruct returns header for new journal file, which will be of the last version.
+func newStartStruct() *startstruct {
 	return &startstruct{
 		VersionBytes:    supportsLatestVer,
 		VersionBytesEnd: supportsLatestVer,
@@ -94,26 +95,29 @@ func NewFileState(filesize int64, bsha1 []byte, startoffset int64) *FileState {
 		Startoffset:    startoffset,
 	}
 }
+
+// Setoffset is a setter
 func (s *FileState) Setoffset(offset int64) *FileState {
 	//reciever is modified
 	s.Startoffset = offset
 	return s
 }
 
-//---------------------------------
-// GetLogFileName returns a log filename.
-// TODO: rename GetLogFileName
+// GetPartialJournalFileName returns a log filename.
+// TODO: rename
 func GetPartialJournalFileName(name string) string {
 	return name + ".partialinfo"
 }
 
-//rename to CreateNewLogFile
-func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) error {
-	const op = "fsdriver.BeginNewPartialFile()"
+// CreateNewPartialJournalFile creates new journal file and writes a journal header.
+// dir must be created before.
+func CreateNewPartialJournalFile(dir, name string, lcontent int64, bytessha1 []byte) error {
+	const op = "fsdriver.CreateNewPartialJournalFile()"
+
 	namepart := GetPartialJournalFileName(name)
 	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0)
 	if err != nil {
-		return Error.E(op, err, errPartialFileWritingError, 0, "")
+		return Error.E(op, err, errPartialFileCreate, 0, "")
 	}
 
 	defer wp.Close()
@@ -123,7 +127,7 @@ func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) err
 		return Error.E(op, err, errPartialFileWritingError, 0, "")
 	}
 	// fills header of journal file
-	aLogHeader := NewStartStruct()
+	aLogHeader := newStartStruct()
 	aLogHeader.TotalExpectedFileLength = lcontent
 	copy(aLogHeader.Sha1[:], bytessha1)
 
@@ -134,20 +138,19 @@ func BeginNewPartialFile(dir, name string, lcontent int64, bytessha1 []byte) err
 	return nil
 }
 
-func OpenRead(dir, name string) (*os.File, error) {
+func openToRead(dir, name string) (*os.File, error) {
 	f, err := os.Open(filepath.Join(dir, name))
 	return f, err
 }
 
-// rename to OpenWriteCreate
-func OpenActualFile(dir, name string) (*os.File, error) {
+func openToWrite(dir, name string) (*os.File, error) {
 	// seeks END
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0)
 	return f, err
 }
 
-// opens journal file and seeks offset 0 to read version then seeks END
-func OpenJournalFile(dir, name string) (*os.File, uint32, error) {
+// openJournalFile opens journal(log) file and seeks offset 0 to read a version struct and then seeks END of the file.
+func openJournalFile(dir, name string) (*os.File, uint32, error) {
 	// opens at the BEGINING
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0)
 	if err != nil {
@@ -158,7 +161,7 @@ func OpenJournalFile(dir, name string) (*os.File, uint32, error) {
 		// do not seek END on error
 		return f, 0, err
 	}
-	_, err = f.Seek(0, 2) // END !!!
+	_, err = f.Seek(0, 2) // seeks from the END !!!
 	if err != nil {
 		// can't seek = can't use file
 		return f, 0, err
@@ -166,15 +169,15 @@ func OpenJournalFile(dir, name string) (*os.File, uint32, error) {
 	return f, ver, err
 }
 
-//rename to PrepareFilesForWrite
+// OpenTwoCorrespondentFiles opens two files for writing.
 func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *os.File, errwp, errwa error) {
-	wa, wp = nil, nil // named return
-	wp, ver, errwp = OpenJournalFile(dir, namepart)
+	wa, wp = nil, nil // named return, wa=actual, wp=partial(that is log file)
+	wp, ver, errwp = openJournalFile(dir, namepart)
 	if errwp != nil {
 		return
 	}
 
-	wa, errwa = OpenActualFile(dir, name)
+	wa, errwa = openToWrite(dir, name)
 	if errwa != nil {
 		return
 	}
@@ -256,10 +259,10 @@ func addRecordToJournalFile(pfi io.Writer, step currentAction, ver uint32, info 
 	var err error
 	switch ver {
 	case structversion2:
-		infoVer2 := info.Ver2()
+		infoVer2 := info.ver2()
 		err = binary.Write(pfi, binary.LittleEndian, &infoVer2)
 	case structversion1:
-		infoVer1 := info.Ver1()
+		infoVer1 := info.ver1()
 		err = binary.Write(pfi, binary.LittleEndian, &infoVer1)
 	default:
 		return Error.E(op, err, errPartialFileVersionTagUnsupported, 0, "")
@@ -299,7 +302,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	const op = "fsdriver.MayUpload()"
 	namepart := GetPartialJournalFileName(name)
 
-	wa, err := OpenRead(storagepath, name)
+	wa, err := openToRead(storagepath, name)
 	if err != nil {
 		// no uploaded file, client may upload
 		return *NewFileState(0, nil, 0), nil
@@ -314,7 +317,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	}
 
 	// reads log(journal) file
-	wp, err := OpenRead(storagepath, namepart)
+	wp, err := openToRead(storagepath, namepart)
 	if err != nil {
 		// != nil means no log file exists, this means actual file is already uploaded
 		// (otherwise it has a journal file near)
@@ -412,4 +415,55 @@ func GetFileSha1(storagepath, name string) ([]byte, error) {
 		return ret, err
 	}
 	return h.Sum(nil), nil
+}
+
+// DecodePartialFile is used to get printable representation of a journal(log) file content.
+// It is used by decodejournal package.
+func DecodePartialFile(r io.Reader, w io.Writer) error {
+	ver, err := GetJournalFileVersion(r)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "File has a header with version: %x\n", ver)
+	switch ver {
+	case structversion2:
+		err = decodePartialFileVer2(r, w)
+	case structversion1:
+		err = decodePartialFileVer2(r, w)
+	}
+	return err
+
+}
+func decodePartialFileVer1(r io.Reader, w io.Writer) error {
+	return nil
+}
+func decodePartialFileVer2(r io.Reader, w io.Writer) error {
+	startstruct := startstructver2{}
+	record := journalrecordver2{}
+
+	err := binary.Read(r, binary.LittleEndian, &startstruct)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%#v\n", startstruct)
+
+	for {
+		err := binary.Read(r, binary.LittleEndian, &record)
+		if err == io.EOF {
+			return nil
+		}
+		if err == io.ErrUnexpectedEOF {
+			// there are some bytes
+			b := make([]byte, binary.Size(record))
+			r.Read(b)
+			fmt.Fprintf(w, "%x\n", b)
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%#v\n", record)
+
+	}
+
 }

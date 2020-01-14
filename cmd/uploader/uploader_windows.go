@@ -6,7 +6,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func MarkFileAsUploaded(fullfilename string) error {
+func markFileAsUploaded(fullfilename string) error {
 	// uses Windows API
 	ptrFilenameUint16, err := windows.UTF16PtrFromString(fullfilename)
 	if err != nil {
@@ -29,7 +29,7 @@ func MarkFileAsUploaded(fullfilename string) error {
 
 }
 
-func GetArchiveAttribute(fullfilename string) (bool, error) {
+func getArchiveAttribute(fullfilename string) (bool, error) {
 	ptrFilename, err := windows.UTF16PtrFromString(fullfilename)
 	if err != nil {
 		return false, err

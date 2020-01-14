@@ -1,6 +1,7 @@
-// httpDigestAuthentication implements server side of rfc2617: HTTP Authentication: Digest Access Authentication.
+// Package httpDigestAuthentication implements server side of rfc2617: HTTP Authentication: Digest Access Authentication.
 package httpDigestAuthentication
 
+// to debug run: ./uploader.exe --file ./testbackups/sendfile.rar
 import (
 	Error "Upload/errstr"
 	"bytes"
@@ -27,16 +28,62 @@ type CredentialsFromClient struct {
 	ChallengeToClient
 	Username   string
 	URI        string
-	Qop        string
 	NonceCount string
 	Cnonce     string
 	Method     string
 	Response   string
 }
 
+// GenerateAuthorization creates a http digest Authorization header at client side.
+func GenerateAuthorization(c *CredentialsFromClient) string {
+	b := &bytes.Buffer{}
+	b.WriteString("Digest ")
+
+	b.WriteString("username=")
+	b.WriteString(c.Username)
+
+	b.WriteString(", realm=")
+	b.WriteString(c.Realm)
+
+	if c.Nonce != "" {
+		b.WriteString(", nonce=")
+		b.WriteString(c.Nonce)
+	}
+
+	b.WriteString(", qop=")
+	b.WriteString(c.Qop)
+
+	b.WriteString(", cnonce=")
+	b.WriteString(c.Cnonce)
+
+	b.WriteString(", response=")
+	b.WriteString(c.Response)
+
+	if c.Opaque != "" {
+		b.WriteString(", opaque=")
+		b.WriteString(c.Opaque)
+	}
+	if c.Stale != "" {
+		b.WriteString(", stale=")
+		b.WriteString(c.Stale)
+	}
+	if c.Algorithm != "" {
+		b.WriteString(", algorithm=")
+		b.WriteString(c.Algorithm)
+	}
+
+	return b.String()
+}
+
+// HashUsernameRealmPassword returns a string that one may save to a password database.
+func HashUsernameRealmPassword(username, realm, password string) string {
+	return md5hex(fmt.Sprintf("%s:%s:%s", username, realm, password))
+}
+
 // GenerateWWWAuthenticate 	generates the "WWW-Authenticate" header that holds http digest authentication challenge.
-// 'Digest realm=qweqwe, nonce=qweqwe, opaque=qweqwe, stale=qweqwe, algorithm=md5, domain=qweqwe, qop=qweqwe'
-func GenerateWWWAuthenticate(c ChallengeToClient) string {
+// Used on server side.
+// Returns for example: 'Digest realm=qweqwe, nonce=qweqwe, opaque=qweqwe, stale=qweqwe, algorithm=md5, domain=qweqwe, qop=qweqwe'
+func GenerateWWWAuthenticate(c *ChallengeToClient) string {
 
 	b := &bytes.Buffer{}
 	b.WriteString("Digest ")
@@ -62,19 +109,15 @@ func GenerateWWWAuthenticate(c ChallengeToClient) string {
 		b.WriteString(", algorithm=")
 		b.WriteString(c.Algorithm)
 	}
-	//require c.Qop, this gives us a client side cnonce value.
+	// We require c.Qop, this gives us that a client side returns a cnonce value.
 	b.WriteString(", qop=")
 	b.WriteString(c.Qop)
 
 	return b.String()
 }
 
-// HashUsernameRealmPassword returns a string that one may save to a password database.
-func HashUsernameRealmPassword(username, realm, password string) string {
-	return md5hex(fmt.Sprintf("%s:%s:%s", username, realm, password))
-}
-
 // CheckCredentialsFromClient checks clients password with digest method.
+// It is used at server side.
 func CheckCredentialsFromClient(c *ChallengeToClient, creds *CredentialsFromClient, hashUsernameRealmPassword string) (bool, error) {
 	const op = "httpDigestAuthentication.CheckCredentialsFromClient()"
 	if creds.Algorithm != "MD5" {
@@ -85,7 +128,7 @@ func CheckCredentialsFromClient(c *ChallengeToClient, creds *CredentialsFromClie
 		// a user mangled the challenge on purpose
 		return false, Error.E(op, nil, errClientHasMangledChallenge, 0, "")
 	}
-	responsewant, err := generateAuthorizationResponseParameter(hashUsernameRealmPassword, creds)
+	responsewant, err := GenerateResponseAuthorizationParameter(hashUsernameRealmPassword, creds)
 	if err != nil {
 		return false, err
 	}
@@ -96,8 +139,9 @@ func CheckCredentialsFromClient(c *ChallengeToClient, creds *CredentialsFromClie
 	return true, nil
 }
 
-// ParseStringIntoCredentialsFromClient extracts digest parameters from string
-func ParseStringIntoCredentialsFromClient(input string) (*CredentialsFromClient, error) {
+// ParseStringIntoStruct extracts digest parameters from string.
+// It is used both at server and client side to create a struct with extracted parameters.
+func ParseStringIntoStruct(input string) (*CredentialsFromClient, error) {
 	const op = "httpDigestAuthentication.parseStringToCredentialsFromClient()"
 	ret := &CredentialsFromClient{}
 	const quote = `"'`
@@ -165,19 +209,22 @@ func h2(s1, s2 string) string {
 	return md5hex(fmt.Sprintf("%s:%s", s1, s2))
 }
 
-// generateAuthorizationResponseParameter creates 'response' parameter on server side. We compare it with the client 'response'.
-// cr CredentialsFromClient is used to get all input parameters and _must_ be previously checked against ChallengeToClient.
-func generateAuthorizationResponseParameter(hashUsernameRealmPassword string, cr *CredentialsFromClient) (string, error) {
+// GenerateResponseAuthorizationParameter creates 'response' parameter.
+// Server side uses it to validate clients response.
+// Client side uses it to create 'response' parameter.
+// On server side the cr *CredentialsFromClient is used to get all input parameters and _must_ be previously checked against ChallengeToClient.
+func GenerateResponseAuthorizationParameter(hashUsernameRealmPassword string, cr *CredentialsFromClient) (string, error) {
 	const op = "httpDigestAuthentication.GenerateAuthorizationString()"
-	hashOfMethodAndUri := h2(cr.Method, cr.URI)
+	// don't forget to fill cr.Method
+	hashOfMethodAndURI := h2(cr.Method, cr.URI)
 	s2 := ""
 	switch cr.Qop {
 	case "auth":
 		// must use a cnonce from client
-		s2 = fmt.Sprintf("%s:%s:%s:%s:%s", cr.Nonce, cr.NonceCount, cr.Cnonce, cr.Qop, hashOfMethodAndUri)
+		s2 = fmt.Sprintf("%s:%s:%s:%s:%s", cr.Nonce, cr.NonceCount, cr.Cnonce, cr.Qop, hashOfMethodAndURI)
 
 	case "":
-		s2 = fmt.Sprintf("%s:%s", cr.Nonce, hashOfMethodAndUri)
+		s2 = fmt.Sprintf("%s:%s", cr.Nonce, hashOfMethodAndURI)
 	default:
 		return string(rand.Int()), Error.E(op, nil, errUnsupportedMessageQop, 0, "")
 

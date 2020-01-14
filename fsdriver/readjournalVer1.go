@@ -3,7 +3,6 @@ package fsdriver
 import (
 	Error "Upload/errstr"
 	"encoding/binary"
-	"fmt"
 	"io"
 )
 
@@ -30,8 +29,8 @@ type journalrecordver1 struct {
 	Count       int64
 }
 
-// Ver1 translates JournalRecord to old version 1
-func (r JournalRecord) Ver1() journalrecordver1 {
+// ver1 translates JournalRecord to old version 1
+func (r JournalRecord) ver1() journalrecordver1 {
 	return journalrecordver1{
 		Action:      r.Action,
 		Startoffset: r.Startoffset,
@@ -39,10 +38,10 @@ func (r JournalRecord) Ver1() journalrecordver1 {
 	}
 }
 
-// ReadCurrentStateFromPartialFile reads log(journal) file.
+// ReadCurrentStateFromJournalVer1 reads log(journal) file.
 // It returns last correct log record.
-// Check correctness of journal.
-// Every change to format of journal file uses its own func.
+// It checks correctness of the log(journal).
+// Every format version of a journal file uses its own such function.
 func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 	const op = "fsdriver.ReadCurrentStateFromJournalVer1()"
 	var startstruct startstructver1
@@ -151,47 +150,4 @@ func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileSta
 		// incorrect header
 		return retState, correctrecordoffset, Error.E(op, err, errPartialFileVersionTagReadError, 0, "")
 	}
-}
-
-func DecodePartialFile(r io.Reader, w io.Writer) error {
-	ver, err := GetJournalFileVersion(r)
-	fmt.Fprintf(w, "File version: %x\n", ver)
-	if err != nil {
-		return err
-	}
-
-	err = DecodePartialFileVer2(r, w)
-	return err
-
-}
-
-func DecodePartialFileVer2(r io.Reader, w io.Writer) error {
-	startstruct := startstructver2{}
-	record := journalrecordver2{}
-
-	err := binary.Read(r, binary.LittleEndian, &startstruct)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "%#v\n", startstruct)
-
-	for {
-		err := binary.Read(r, binary.LittleEndian, &record)
-		if err == io.EOF {
-			return nil
-		}
-		if err == io.ErrUnexpectedEOF {
-			// there are some bytes
-			b := make([]byte, binary.Size(record))
-			r.Read(b)
-			fmt.Fprintf(w, "%x\n", b)
-			return err
-		}
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "%#v\n", record)
-
-	}
-
 }

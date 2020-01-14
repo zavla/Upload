@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	LoginsFile string
+	loginsFile string
 )
 
 // Login represents a user
@@ -43,6 +43,7 @@ type Logins struct {
 	Logins  []Login `json:"logins"` // keep them sorted in memory
 }
 
+// SetAndStorePassword stores password hash using function updateLoginInStore.
 func (ls *Logins) SetAndStorePassword(email, bhash string) (Login, error) {
 	const op = "logins.SetAndStorePassword"
 
@@ -53,9 +54,9 @@ func (ls *Logins) SetAndStorePassword(email, bhash string) (Login, error) {
 	// here ls[pos].mu is locked
 	defer ls.Logins[pos].mu.Unlock() // unlockit
 
-	// next persist it to disk or store
+	// next persist it to disk or somehow store
 	dupLogin := l
-	//copy
+	// we made a copy
 	err = updateLoginInStore(dupLogin)
 	if err != nil {
 		return Login{}, Error.E(op, err, errSaveLogin, 0, "")
@@ -85,7 +86,7 @@ func updateLoginInStore(new Login) error {
 		return Error.E(op, err, errPackIntoBlockFailed, 0, "")
 	}
 	// adds to the end
-	f, err := os.OpenFile(LoginsFile, os.O_APPEND, 0)
+	f, err := os.OpenFile(loginsFile, os.O_APPEND, 0)
 	if err != nil {
 		return Error.E(op, err, errFileOpen, 0, "")
 	}

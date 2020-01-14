@@ -1,9 +1,16 @@
 package main
 
+// substitution is
+// curl.exe -v -X POST 'http://127.0.0.1:64000/upload/zahar?&Filename="sendfile.rar"' -T .\testbackups\sendfile.rar --anyauth --user zahar
 import (
 	Error "Upload/errstr"
 	"Upload/fsdriver"
+	"Upload/httpDigestAuthentication"
 	"Upload/liteimp"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/ssh/terminal"
+	"strings"
+
 	//"crypto/sha1"
 	"encoding/json"
 	"flag"
@@ -31,21 +38,30 @@ var (
 
 )
 
-//const uploadServerURL = `http://127.0.0.1:64000/upload?&Filename=sendfile.rar`
-var uploadServerURL = `http://127.0.0.1:64000/upload`
+var where someconfig
 
-//const uploadServerURL = `http://myapp/upload`
+type someconfig struct {
+	toURL    string
+	password string // one need to translate []byte to propper utf-8 string
+	username string
+}
+
+func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
+
+	return nil
+}
 
 // sendAFile sends file to a service Upload.
 // jar holds cookies from server http.Responses and use them in http.Requests
-func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []byte) error {
+func sendAFile(where *someconfig, fullfilename string, jar *cookiejar.Jar, bsha1 []byte) error {
 	// I use op as the first argument to Error.E()
 	const op = "uploader.sendAFile()"
-	// opens file
+
+	// opens the file
 	_, name := filepath.Split(fullfilename)
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
 	if err != nil {
-		return Error.E(op, err, ErrCantOpenFileForReading, 0, "")
+		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 	// closes file on exit
 	defer func() { _ = f.Close() }()
@@ -53,13 +69,14 @@ func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []by
 	// reads file size
 	stat, err := f.Stat()
 	if err != nil {
-		return Error.E(op, err, ErrCantGetFileProperties, 0, "")
+		return Error.E(op, err, errCantGetFileProperties, 0, "")
 	}
 
 	// creates http.Request
-	req, err := http.NewRequest("POST", toURL, f) // reads body from f, f will be close after http.Client.Do
+	req, err := http.NewRequest("POST", where.toURL, f)
+	// f will be closed after http.Client.Do
 	if err != nil {
-		return Error.E(op, err, ErrCantCreateHttpRequest, 0, "")
+		return Error.E(op, err, errCantCreateHTTPRequest, 0, "")
 	}
 	// use context to define timeout of total http.Request
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -73,40 +90,44 @@ func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []by
 	query.Add("filename", name) // url parameter &filename
 	req.URL.RawQuery = query.Encode()
 
-	// use transport to define timeouts: idle and expect timeout
+	// I use transport to define timeouts: idle and expect timeout
 	tr := &http.Transport{
-
+		Proxy:                 http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: 20 * time.Second, // wait for headers for how long
 		TLSHandshakeTimeout:   20 * time.Second, // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
-		ExpectContinueTimeout: 20 * time.Second, // expects response status 100-continue befor sending body
+		ExpectContinueTimeout: 20 * time.Second, // expects response status 100-continue before sending the request body
 	}
 
 	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
-		Timeout:   5 * time.Minute, // we connected to ip port but didn't manage to read the whole respone (headers and body) within Timeout
-		Transport: tr,
-		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
+		CheckRedirect: redirectPolicyFunc,
+		Timeout:       5 * time.Minute, // we connected to ip port but didn't manage to read the whole response (headers and body) within Timeout
+		Transport:     tr,              // I don't use http.DefaultTransport
+		Jar:           jar,             // http.Request uses jar to keep cookies (to hold sessionID)
 	}
 
-	waitBeforeRetry := time.Duration(10)
+	waitBeforeRetry := time.Duration(30) * time.Second
 
-	ret := Error.E(op, err, ErrNumberOfRetriesExceeded, 0, "")
+	ret := Error.E(op, err, errNumberOfRetriesExceeded, 0, "")
+	authorizationsent := false
+
 	// cycle for some errors that can be tolerated
 	for i := 0; i < 3; i++ {
-
+		// every step makes a request with a new body bytes (continues upload)
 		req.Body = f
-		// makes the first request, without cookie or makes a retry request with sessionID in cookie on steps 2,3...
-		resp, err := cli.Do(req)       // sends a file f in the body,  closes file f
-		if err != nil || resp == nil { // response may be nil when transport fails with timeout (timeout while i am debugging the upload server)
-			ret = Error.E(op, err, ErrCantConnectToServer, 0, "")
+		// the first request is without a cookie. Other requests comes with sessionID in cookie.
+		resp, err := cli.Do(req)       // req sends a file f in the body. cli.Do _closes_ file f.
+		if err != nil || resp == nil { // response may be nil when transport fails with timeout (it may timeout while i am debugging the upload server)
+			ret = Error.E(op, err, errCantConnectToServer, 0, "")
 			log.Printf("%s", ret)
-			time.Sleep(waitBeforeRetry * time.Second) // waits
+
+			time.Sleep(waitBeforeRetry) // waits
 
 			// opens file again
 			f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 			if err != nil {
-				ret = Error.E(op, err, ErrCantOpenFileForReading, 0, "")
+				ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
 				log.Printf("%s", ret)
 				return ret
 			}
@@ -114,42 +135,91 @@ func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []by
 			continue // retries
 		}
 
-		// TODO(zavla): when to close body ???
-		//???resp.Body.Close()
-
 		log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
 			_ = resp.Body.Close()
 
-			return nil // upload completed
+			return nil // upload completed successfully
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			_ = resp.Body.Close()
+			// server actively denies upload
+			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
+		}
+		if resp.StatusCode == http.StatusUnauthorized && authorizationsent {
+			log.Printf("Username or password is incorrect.")
+			return Error.E(op, nil, errAuthorizationFailed, 0, "")
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			wwwauthstr := resp.Header.Get("WWW-Authenticate")
+			_ = resp.Body.Close()
+			if wwwauthstr == "" || !strings.HasPrefix(wwwauthstr, "Digest") {
+				return Error.E(op, nil, errBadHTTPAuthanticationMethod, 0, "")
+
+			}
+			challengeAndCredentials, err := httpDigestAuthentication.ParseStringIntoStruct(wwwauthstr)
+			if err != nil {
+				return Error.E(op, err, errBadHTTPAuthenticationChellenge, 0, "")
+			}
+			// we support Digest http authentication only
+
+			// check for supported by us digest mode
+			if challengeAndCredentials.Algorithm != "MD5" {
+				return Error.E(op, nil, errBadHTTPAuthenticationChellenge, 0, "")
+			}
+			if challengeAndCredentials.Qop != "auth" {
+				return Error.E(op, nil, errBadHTTPAuthenticationChellenge, 0, "")
+
+			}
+			// client must supply its cnonce value
+			challengeAndCredentials.Cnonce = uuid.New().String()
+			// don't forget to fill challengeAndCredentials.Method
+			challengeAndCredentials.Method = req.Method
+
+			hashUsernameRealmPassword := httpDigestAuthentication.HashUsernameRealmPassword(where.username, challengeAndCredentials.Realm, where.password)
+			responseParam, err := httpDigestAuthentication.GenerateResponseAuthorizationParameter(hashUsernameRealmPassword, challengeAndCredentials)
+			challengeAndCredentials.Username = where.username
+			challengeAndCredentials.Response = responseParam
+			req.Header.Set("Authorization", httpDigestAuthentication.GenerateAuthorization(challengeAndCredentials))
+			authorizationsent = true
+			continue
+
 		}
 
-		// opens file again
+		// next we read resp.Body and need to close it.
+
+		// Open file again as we are going to do the next upload attempt.
+		// The rest IFs are for expected "error" http.StatusConflist and other upload service specific errors.
+		// Such as service messed something and asks us to retry.
 		f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 		if err != nil {
-			ret = Error.E(op, err, ErrCantOpenFileForReading, 0, "")
+			_ = resp.Body.Close()
+			ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
 			log.Printf("%s", ret)
 			return ret
 		}
 
-		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict
-			//var bodyjson liteimp.JsonFileStatus
-			// server responded "a file already exists"
-			fromserverjson, err, debugbytes := decodeJSONinBody(resp) // unmarshals to JsonFileStatus,closes body
-			// response Body (resp.Body) here is closed
+		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
+			// server responded "a file already exists" with JSON
+			filestatus, debugbytes, err := decodeJSONinBody(resp)
+
+			_ = resp.Body.Close() // don't need resp.Body any more
+
 			if err != nil {
 				// logs incorrect server respone
-				//msgbytes, _ := json.MarshalIndent(bodyjson, "", " ")
-				ret = Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
-				log.Printf("Got = %s\n%s", string(debugbytes), ret)
+
+				ret = Error.E(op, err, errServerRespondedWithBadJSON, 0, string(debugbytes))
+				log.Printf("%s", ret)
 				return ret // do not retry, just return
 			}
-			// server sended a proper json response
+			// server sent a proper json response
 
-			startfrom := fromserverjson.Startoffset
-			newoffset, err := f.Seek(startfrom, 0) // 0 = seek from the begining
+			startfrom := filestatus.Startoffset
+			const fromBegin = 0 // startfrom bytes from the beginning
+			newoffset, err := f.Seek(startfrom, fromBegin)
+
 			if err != nil || newoffset != startfrom {
-				ret = Error.E(op, err, ErrFileSeekErrorOffset, 0, "")
+				ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
 				log.Printf("%s", ret)
 				return ret // do not retry, just return
 			}
@@ -161,50 +231,53 @@ func sendAFile(toURL string, fullfilename string, jar *cookiejar.Jar, bsha1 []by
 			query.Set("count", strconv.FormatInt(bytesleft, 10))
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
-			log.Printf("second request with startoffset %s", req.URL.RawQuery)
+			log.Printf("continue from startoffset %d", newoffset)
 			// no delay, do expected request again
-			continue // cycles to next retry
+			continue // cycles to next cli.Do()
 
-		} else if resp.StatusCode == http.StatusForbidden {
-			return Error.E(op, nil, ErrServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
-		} else {
-			log.Printf("Server responded with error, status: %s", resp.Status)
+		}
+
+		{
+			log.Printf("DEBUG:Server responded with status: %s", resp.Status)
 			b := make([]byte, 500)
 			n, _ := resp.Body.Read(b)
 			b = b[:n]
-			log.Printf("%s", string(b))
+			log.Printf("DEBUG:%s", string(b))
 		}
+		// here goes other errors and http.statuses:
+		// upload failed for some reson, timeouts. Retry with current cookie.
 
-		time.Sleep(waitBeforeRetry * time.Second)
-		// upload failed or timed out? retry with current cookie
+		time.Sleep(waitBeforeRetry)
 	}
 	return ret
 
 }
 
-func decodeJSONinBody(resp *http.Response) (value *liteimp.JsonFileStatus, err error, debugbytes []byte) {
+// decodeJSONinBody tries to decode resp.Body as a JSON of type liteimp.JsonFileStatus.
+// Doesn't close the resp.Body.
+func decodeJSONinBody(resp *http.Response) (value *liteimp.JsonFileStatus, debugbytes []byte, err error) {
 
 	const op = "uploader.decodeJSONinBody()"
 
 	value = &liteimp.JsonFileStatus{} // struct
 	if resp.ContentLength == 0 {
-		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
-		return value, ret, nil
+		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
+		return value, nil, ret
 	}
 	b := make([]byte, resp.ContentLength) // expects that server has responded with some json
 	maxjsonlen := int64(4000)
 	ioreader := io.LimitReader(resp.Body, maxjsonlen)
 
 	_, err = ioreader.Read(b)
-	defer func() { _ = resp.Body.Close() }()
+
 	if !(err == nil || err == io.EOF) {
-		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
-		return value, ret, nil
+		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
+		return value, nil, ret
 	}
 	// unmarshal server json response
 	if err := json.Unmarshal(b, &value); err != nil {
-		ret := Error.E(op, err, ErrServerRespondedWithBadJson, 0, "")
-		return value, ret, b
+		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
+		return value, b, ret
 	}
 	return value, nil, nil
 
@@ -212,18 +285,49 @@ func decodeJSONinBody(resp *http.Response) (value *liteimp.JsonFileStatus, err e
 
 func main() {
 	const op = "main()"
-	logname := flag.String("log", "", "log file path and name.")
-	file := flag.String("file", "", "a file you want to upload")
-	dirtomonitor := flag.String("dir", "", "a directory which to monitor for new files to upload")
-	flag.StringVar(&uploadServerURL, "server", `http://127.0.0.1:64000/upload`, "URL of upload server")
+	logname := flag.String("log", "", "log file.")
+	file := flag.String("file", "", "a file you want to upload.")
+	dirtomonitor := flag.String("dir", "", "a directory which to upload.")
+	username := flag.String("username", "", "user name of an Upload service.")
+	uploadServerURL := flag.String("service", `http://127.0.0.1:64000/upload`, "URL of the Upload service.")
+	askpassword := flag.Bool("askpassword", true, "will ask your password for the Upload service.")
+	//passwordfile := flag.Srtring("passwordfile","","a file with password (Windows DPAPI encrypted).")
+
 	flag.Parse()
-	if len(os.Args) == 0 {
+	if len(os.Args[1:]) == 0 {
 		flag.PrintDefaults()
 		os.Exit(1)
 		return
 	}
+	// check required parameters
+	where.toURL = *uploadServerURL
+
+	if *file == "" && *dirtomonitor == "" {
+		log.Printf("--file or --dir must be specified.")
+		os.Exit(1)
+		return
+	}
+	// asks password only if there is a specified user
+	if *askpassword && *username != "" {
+		fmt.Printf("\nEnter user '%s' password: ", *username)
+		password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		println("")
+		if err != nil {
+			fmt.Printf("Reading password error: %s", err)
+			return
+		}
+		where.password = string(password)
+	}
+	if *username != "" {
+		where.username = *username
+		if where.toURL[len(where.toURL)-1] != '/' {
+			where.toURL += "/"
+		}
+		where.toURL += *username
+	}
 
 	defer func() {
+		// on panic we will write to log file
 		if err := recover(); err != nil {
 
 			log.Printf("uploader main has paniced:\n%s\n", err)
@@ -241,7 +345,7 @@ func main() {
 	} else {
 		var err error
 		flog, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE, os.ModeAppend)
-		log.Printf("%s", Error.E(op, err, ErrCantOpenFileForReading, 0, ""))
+		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		os.Exit(1)
 		return
 	}
@@ -250,34 +354,25 @@ func main() {
 	log.SetOutput(flog)
 	defer func() { _ = flog.Close() }()
 
-	// check required parameters
-	if *file == "" && *dirtomonitor == "" {
-		log.Printf("--file or --dir must be specified.")
-		os.Exit(1)
-		return
-	}
-
 	// channel with filenames
 	chNames := make(chan string, 2)
 
 	if *file != "" {
+		// send to chNames
 		chNames <- *file
 	}
 	if *dirtomonitor != "" {
-		// walk a dir
+		// walk a dir, send names to chNames
 		go getFilenamesToupload(*dirtomonitor, chNames) // closes chNames after adding all files
 	} else {
 		close(chNames)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
-	// TODO(zavla): make errors more understandable
 	// TODO(zavla): store partial files aside? move them somewhere?
 	// TODO(zavla): run uploadserver as a Windows service.
-	// TODO(zavla): every in fact nonexported func make lowcase
 	// TODO(zavla): autotls?
 	// TODO(zavla): CSRF, do not mix POST request with URL parametres!
-	// TODO(zavla): in server calculate speed of of upload.
-	// TODO(zavla): get rid of Sync() in fsdriver.AddBytesToFile() ?
+	// TODO(zavla): in server calculate speed of upload.
 
 	runWorkers(chNames)
 	log.Println("Normal exit.")
@@ -300,12 +395,12 @@ func worker(wg *sync.WaitGroup, ch chan string) {
 	defer wg.Done()
 
 	for name := range ch {
-		prepareAndSendAFile(name)
+		prepareAndSendAFile(name, &where)
 	}
 	return
 }
 
-func prepareAndSendAFile(filename string) {
+func prepareAndSendAFile(filename string, config *someconfig) {
 	const op = "uploader.prepareAndSendAFile()"
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
@@ -317,18 +412,18 @@ func prepareAndSendAFile(filename string) {
 	//compute SHA1 of a file
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
-		log.Printf("%s", Error.E(op, err, ErrCantOpenFileForReading, 0, ""))
+		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		return
 	}
 
-	err = sendAFile(uploadServerURL, fullfilename, jar, bsha1)
+	err = sendAFile(config, fullfilename, jar, bsha1)
 
 	if err == nil {
 		log.Printf("Upload succsessful: %s", fullfilename)
 
-		if err := MarkFileAsUploaded(fullfilename); err != nil {
+		if err := markFileAsUploaded(fullfilename); err != nil {
 			// a non critical error
-			log.Printf("%s", Error.E(op, err, ErrMarkFileFailed, 0, ""))
+			log.Printf("%s", Error.E(op, err, errMarkFileFailed, 0, ""))
 		}
 		// SUCCESS
 		return
@@ -338,7 +433,7 @@ func prepareAndSendAFile(filename string) {
 	return
 }
 
-// getFilenamesToupload collects files names to channel chNames <-
+// getFilenamesToupload collects files names in a directory and sends them to channel chNames.
 func getFilenamesToupload(dir string, chNames chan<- string) {
 	const op = "uploader.getFilenamesToupload()"
 	defer close(chNames)
@@ -347,7 +442,7 @@ func getFilenamesToupload(dir string, chNames chan<- string) {
 			return nil // next file please
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
-		isarchiveset, _ := GetArchiveAttribute(path)
+		isarchiveset, _ := getArchiveAttribute(path)
 		if isarchiveset {
 			chNames <- path
 		}
@@ -355,7 +450,7 @@ func getFilenamesToupload(dir string, chNames chan<- string) {
 	})
 	if err != nil {
 		close(chNames)
-		log.Printf("%s", Error.E(op, err, ErrReadingDirectory, 0, ""))
+		log.Printf("%s", Error.E(op, err, errReadingDirectory, 0, ""))
 	}
 
 	return

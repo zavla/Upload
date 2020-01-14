@@ -37,7 +37,6 @@ func TestParseStringIntoCredentialsFromClient(t *testing.T) {
 				},
 				Username:   "Mufasa",
 				URI:        "/dir/index.html",
-				Qop:        "",
 				NonceCount: "00000001",
 				Cnonce:     "0a4f113b",
 				Method:     "",
@@ -48,13 +47,13 @@ func TestParseStringIntoCredentialsFromClient(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseStringIntoCredentialsFromClient(tt.args.input)
+			got, err := ParseStringIntoStruct(tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseStringIntoCredentialsFromClient() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ParseStringIntoStruct() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ParseStringIntoCredentialsFromClient() \n\tgot = %v,\n\twant %v", got, tt.want)
+				t.Errorf("ParseStringIntoStruct() \n\tgot = %v,\n\twant %v", got, tt.want)
 			}
 		})
 	}
@@ -75,7 +74,7 @@ func TestGenerateAuthorizationResponseParameter(t *testing.T) {
                  response="6629fae49393a05397450978507c4ef1",
                  opaque="5ccc069c403ebaf9f0171e9517f40e41",
 				 method="GET"`
-	credentials, _ := ParseStringIntoCredentialsFromClient(standardAuthorizationHeader)
+	credentials, _ := ParseStringIntoStruct(standardAuthorizationHeader)
 
 	tests := []struct {
 		name    string
@@ -94,13 +93,13 @@ func TestGenerateAuthorizationResponseParameter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := generateAuthorizationResponseParameter(tt.args.hashUsernameRealmPassword, &tt.args.cr)
+			got, err := GenerateResponseAuthorizationParameter(tt.args.hashUsernameRealmPassword, &tt.args.cr)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("generateAuthorizationResponseParameter() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GenerateResponseAuthorizationParameter() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("generateAuthorizationResponseParameter() got = %v, want %v", got, tt.want)
+				t.Errorf("GenerateResponseAuthorizationParameter() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -10,6 +10,7 @@ const (
 	errPartialFileCorrupted
 	errForbidenToUpdateAFile
 	errPartialFileVersionTagUnsupported
+	errPartialFileCreate
 )
 
 func init() {
@@ -19,4 +20,5 @@ func init() {
 	Error.I18[errPartialFileCorrupted] = "Transaction Log file corrupted."
 	Error.I18[errForbidenToUpdateAFile] = "File already exists, and can't be overwritten."
 	Error.I18[errPartialFileVersionTagUnsupported] = "Transaction Log file version unsupported."
+	Error.I18[errPartialFileCreate] = "Transaction Log file creation error."
 }

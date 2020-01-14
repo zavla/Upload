@@ -72,7 +72,11 @@ func main() {
 		flag.PrintDefaults()
 		return
 	}
-	storageroot = filepath.Clean(storageroot)
+	storageroot, err := filepath.Abs(storageroot)
+	if err != nil{
+		log.Printf("Can't get absolute path of storageroot: %s", err)
+		return
+	}
 	froot, err := openStoragerootRw(storageroot)
 	if err != nil {
 		log.Printf("Can't start server, storageroot rw error: %s", err)
@@ -172,12 +176,12 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	}
 	authorization := c.GetHeader("Authorization")
 	if authorization == "" {
-		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(challenge)
+		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(&challenge)
 		c.Header("WWW-Authenticate", wwwauthenticate)
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
-	creds, err := httpDigestAuthentication.ParseStringIntoCredentialsFromClient(authorization)
+	creds, err := httpDigestAuthentication.ParseStringIntoStruct(authorization)
 	if err != nil {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		// TODO: need log
@@ -190,17 +194,18 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	if !ok {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		// TODO: need log
+		log.Printf("Username not found: %s",creds.Username)
 		return
 	}
 	access, err := httpDigestAuthentication.CheckCredentialsFromClient(&challenge, creds, currlogin.Passwordhash)
 	if err != nil {
 		c.AbortWithStatus(http.StatusUnauthorized)
-		// TODO: need log
+		log.Printf("Error while login in: %s",creds.Username)
 		return
 	}
 	if !access {
 		c.AbortWithStatus(http.StatusUnauthorized)
-		// TODO: need log
+		log.Printf("Login failed: %s",creds.Username)
 		return
 	}
 	//granted

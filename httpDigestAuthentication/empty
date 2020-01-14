@@ -1,0 +1,2 @@
+got = &{{estrealm@host.com  dcd98b7102dd2f0e8b11d0f600bfb0c093 5ccc069c403ebaf9f0171e9517f40e41   auth} Mufasa /dir/index.html  00000001 0a4f113b  6629fae49393a05397450978507c4ef1},
+ want &{{testrealm@host.com  dcd98b7102dd2f0e8b11d0f600bfb0c093 5ccc069c403ebaf9f0171e9517f40e41   auth} Mufasa /dir/index.html  00000001 0a4f113b  6629fae49393a05397450978507c4ef1}
