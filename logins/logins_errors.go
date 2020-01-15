@@ -1,7 +1,7 @@
 package logins
 
 import (
-	Error "Upload/errstr"
+	Error "upload/errstr"
 )
 
 const (

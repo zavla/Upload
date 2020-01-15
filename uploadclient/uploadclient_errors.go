@@ -1,4 +1,4 @@
-package main
+package uploadclient
 
 import Error "upload/errstr"
 
@@ -17,6 +17,7 @@ const (
 	errBadHTTPAuthanticationMethod
 	errBadHTTPAuthenticationChellenge
 	errAuthorizationFailed
+	errCanceled
 )
 
 func init() {
@@ -34,4 +35,5 @@ func init() {
 	Error.I18[errBadHTTPAuthanticationMethod] = "Не поддреживаемый метод http аутентификации. Только Digest."
 	Error.I18[errBadHTTPAuthenticationChellenge] = "Заголовок WWW-Authentication неправильный."
 	Error.I18[errAuthorizationFailed] = "Authorization failed."
+	Error.I18[errCanceled] = "Sending canceled."
 }

@@ -3,7 +3,7 @@ package httpDigestAuthentication
 
 // to debug run: ./uploader.exe --file ./testbackups/sendfile.rar
 import (
-	Error "Upload/errstr"
+	Error "upload/errstr"
 	"bytes"
 	"crypto/md5"
 	"fmt"

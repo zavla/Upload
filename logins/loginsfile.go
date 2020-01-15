@@ -1,7 +1,7 @@
 package logins
 
 import (
-	Error "Upload/errstr" // we depend on new standard functions: Unwrap, Is, As
+	Error "upload/errstr" // we depend on new standard functions: Unwrap, Is, As
 	"bytes"
 	"encoding/json"
 	"io/ioutil"

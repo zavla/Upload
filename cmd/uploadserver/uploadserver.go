@@ -1,13 +1,13 @@
 package main
 
 import (
-	Error "Upload/errstr"
 	"Upload/httpDigestAuthentication"
 	"Upload/logins"
 	"Upload/uploadserver"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	Error "upload/errstr"
 
 	//"encoding/base64"
 	"flag"
@@ -35,7 +35,7 @@ var configdir string
 
 func main() {
 	const op = "uploadserver.main()"
-	logname := flag.String("log", "", "log file path and name.")
+	logname := flag.String("log", "", "log file name, relative to storage root.")
 	flag.StringVar(&storageroot, "storageroot", "", "storage root path for files")
 	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified address:port")
 	flag.StringVar(&configdir, "configdir", "", "directory with configuration files")
@@ -73,7 +73,7 @@ func main() {
 		return
 	}
 	storageroot, err := filepath.Abs(storageroot)
-	if err != nil{
+	if err != nil {
 		log.Printf("Can't get absolute path of storageroot: %s", err)
 		return
 	}
@@ -103,8 +103,8 @@ func main() {
 		gin.RecoveryWithWriter(logwriter))
 	// auth middleware. Gin executes a func for evey request.
 	router.Use(func(c *gin.Context) {
-		loginFromUrl := c.Param("login")
-		if loginFromUrl != "" {
+		loginFromURL := c.Param("login")
+		if loginFromURL != "" {
 			//gin.BasicAuthForRealm(loginsMap, "upload")(c)
 			loginCheck(c, loginsMap)
 		}
@@ -194,18 +194,18 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	if !ok {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		// TODO: need log
-		log.Printf("Username not found: %s",creds.Username)
+		log.Printf("Username not found: %s", creds.Username)
 		return
 	}
 	access, err := httpDigestAuthentication.CheckCredentialsFromClient(&challenge, creds, currlogin.Passwordhash)
 	if err != nil {
 		c.AbortWithStatus(http.StatusUnauthorized)
-		log.Printf("Error while login in: %s",creds.Username)
+		log.Printf("Error while login in: %s", creds.Username)
 		return
 	}
 	if !access {
 		c.AbortWithStatus(http.StatusUnauthorized)
-		log.Printf("Login failed: %s",creds.Username)
+		log.Printf("Login failed: %s", creds.Username)
 		return
 	}
 	//granted

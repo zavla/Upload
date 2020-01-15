@@ -1,6 +1,6 @@
 package fsdriver
 
-import Error "Upload/errstr"
+import Error "upload/errstr"
 
 const (
 	// errors used in this package

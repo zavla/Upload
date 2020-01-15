@@ -1,6 +1,6 @@
 package main
 
-import Error "Upload/errstr"
+import Error "upload/errstr"
 
 const (
 	errCantWriteLogFile = iota + Error.ErrorsCodesPackageCmdUploaderserver

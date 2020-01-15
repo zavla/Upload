@@ -15,3 +15,8 @@ uploader/testbackups/fop1_2019-09-01T13-30-00-660-differ.dif
 cmd/uploader/testbackups*/
 log-uploadserver.txt
 cmd/uploader/uploader
+.idea/.gitignore
+.idea/misc.xml
+.idea/modules.xml
+.idea/Upload.iml
+.idea/vcs.xml

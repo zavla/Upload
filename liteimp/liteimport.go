@@ -1,7 +1,7 @@
 package liteimp
 
 import (
-	"Upload/errstr"
+	"upload/errstr"
 	"fmt"
 	"io/ioutil"
 	"net/http"

@@ -1,7 +1,6 @@
 package uploadserver
 
 import (
-	Error "Upload/errstr"
 	"Upload/fsdriver"
 	"Upload/liteimp"
 	"bytes"
@@ -17,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	Error "upload/errstr"
 
 	//_ "time"
 	"github.com/gin-gonic/gin"
@@ -233,11 +233,11 @@ func consumeSourceChannel(
 // startWriteStartRecieveAndWait runs writing G, runs recieving G, and waits for them to complete.
 // Analyses returns from both Gs.
 // Returns error from reciver G and error from writer G.
-func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
+func startWriteStartRecieveAndWait(c *gin.Context, cRequestBody io.ReadCloser,
 	chReciever chan []byte,
 	chWriteResult chan writeresult,
 	dir, name string,
-	whatwhere fsdriver.JournalRecord) (error, writeresult) {
+	whatwhere fsdriver.JournalRecord) (writeresult, error) {
 
 	const op = "uploadserver.startWriteStartRecieveAndWait()"
 
@@ -246,10 +246,10 @@ func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
 		// check input params
 		helpmessage := fmt.Sprintf("The file offset in your request is wrong: %d.", expectedcount)
 		currerr := Error.E(op, nil, errWrongFuncParameters, Error.ErrKindInfoForUsers, helpmessage)
-		return currerr, writeresult{
+		return writeresult{
 			count: 0,
 			err:   currerr,
-		}
+		}, currerr
 	}
 
 	// Starts goroutine in background for write operations for this connection.
@@ -259,7 +259,7 @@ func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
 	// Reciever works in current goroutine, sends bytes to chReciever.
 	// Reciever may end with error, by timeout with error, or by EOF with nil error.
 	// First wait: for end of recieve
-	errRecieve := recieveAndSendToChan(c_Request_Body, chReciever) // exits when error or EOF
+	errRecieve := recieveAndSendToChan(cRequestBody, chReciever) // exits when error or EOF
 
 	// here reciever has ended.
 
@@ -268,11 +268,11 @@ func startWriteStartRecieveAndWait(c *gin.Context, c_Request_Body io.ReadCloser,
 
 	// here ok=true means we have written the whole file.
 	if ok && expectedcount == writeresult.count {
-		return nil, writeresult // SUCCESS, all bytes written
+		return writeresult, nil // SUCCESS, all bytes written
 	}
 	// server failed to write all the bytes
 	// or reciever failed to recieve all the bytes
-	return errRecieve, writeresult
+	return writeresult, errRecieve
 
 }
 
@@ -301,8 +301,8 @@ func logline(c *gin.Context, msg string) (ret logLine) {
 	ret.TimeStamp = time.Now()
 	ret.ClientIP = c.ClientIP()
 	ret.Path = c.Request.URL.Path + "?" + c.Request.URL.RawQuery
-	strSessionId := c.GetString(liteimp.KeysessionID)
-	ret.ErrorMessage = fmt.Sprintf("In session id %s: '%s'", strSessionId, msg)
+	strSessionID := c.GetString(liteimp.KeysessionID)
+	ret.ErrorMessage = fmt.Sprintf("In session id %s: '%s'", strSessionID, msg)
 	return // named
 }
 
@@ -311,7 +311,7 @@ func (param logLine) String() string {
 
 	var statusColor, methodColor, resetColor string
 
-	return fmt.Sprintf(" |%s %3d %s| %13v | %15s |%s %-7s %s %s\n%s",
+	return fmt.Sprintf(" |%s %3d %s| %13v | %15s |%s %-7s %s %s| %s",
 		//param.TimeStamp.Format(time.RFC3339Nano),
 		statusColor, param.StatusCode, resetColor,
 		param.Latency,
@@ -327,13 +327,13 @@ func (param logLine) String() string {
 // Example: curl.exe -X POST http://127.0.0.1:64000/upload?&Filename="sendfile.rar" -T .\sendfile.rar
 func ServeAnUpload(c *gin.Context) {
 	const op = "uploadserver.ServeAnUpload()"
-	strSessionId, err := c.Cookie(liteimp.KeysessionID)
-	loginFromUrl := c.Param("login")
+	strSessionID, err := c.Cookie(liteimp.KeysessionID)
+	loginInURL := c.Param("login")
 	_, exists := c.Get(gin.AuthUserKey)
-	if loginFromUrl != "" && !exists {
+	if loginInURL != "" && !exists {
 		panic("Login in path exists but login is not authenticated.")
 	}
-	if err != nil || strSessionId == "" { // no previous session. Only new files expected.
+	if err != nil || strSessionID == "" { // no previous session. Only new files expected.
 
 		//generate new cookie
 		newsessionID := uuid.New().String()
@@ -349,13 +349,13 @@ func ServeAnUpload(c *gin.Context) {
 
 	} else {
 		// load session state
-		if state, found := clientsstates[strSessionId]; found {
+		if state, found := clientsstates[strSessionID]; found {
 			//c.Error(fmt.Errorf("session continue %s", strSessionId))
 			if state.good {
 				log.Println(logline(c, fmt.Sprintf("continue upload")))
 
 				// c holds session id in KeyValue pair
-				c.Set(liteimp.KeysessionID, strSessionId)
+				c.Set(liteimp.KeysessionID, strSessionID)
 
 				requestedAnUploadContinueUpload(c, state) // continue upload
 				return
@@ -364,12 +364,12 @@ func ServeAnUpload(c *gin.Context) {
 		}
 
 		// stale state, we clear clientsstates map for this session
-		delete(clientsstates, strSessionId)
+		delete(clientsstates, strSessionID)
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true)
 		// we set cookie in response
 		c.Set(liteimp.KeysessionID, "")
 
-		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errSessionEnded, Error.ErrKindInfoForUsers, strSessionId)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errSessionEnded, Error.ErrKindInfoForUsers, strSessionID)})
 		return
 
 	}
@@ -384,7 +384,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 	name := expectfromclient.name
 	storagepath := expectfromclient.path
 
-	strSessionId := c.GetString(liteimp.KeysessionID)
+	strSessionID := c.GetString(liteimp.KeysessionID)
 
 	// Uses sync.Map to prevent uploading the same file in concurrents http handlers.
 	// usedfiles is global for http server.
@@ -410,7 +410,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 	whatIsInFile, err := fsdriver.MayUpload(expectfromclient.path, name)
 	if err != nil {
 		// Here err!=nil means upload is now allowed
-		delete(clientsstates, strSessionId)
+		delete(clientsstates, strSessionID)
 
 		c.Error(err)
 		log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
@@ -432,13 +432,13 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		helpmessage := "" + string(jsonbytes)
 		//
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
-		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, err, errClientRequestShouldBindToJson, 0, helpmessage)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, err, errClientRequestShouldBindToJSON, 0, helpmessage)})
 		return
 	}
 
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
 		// client sends propper rest of the file
-		errreciver, writeresult := startWriteStartRecieveAndWait(c, c.Request.Body,
+		writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -455,7 +455,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 			if err != nil {
 				// Here err!=nil means upload is now allowed
 
-				delete(clientsstates, strSessionId)
+				delete(clientsstates, strSessionID)
 
 				c.Error(err)
 				log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
@@ -497,14 +497,14 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
 		}
-		log.Println(logline(c,fmt.Sprintf("Successfull upload: %s",newabsfilename)))
+		log.Println(logline(c, fmt.Sprintf("Successfull upload: %s", newabsfilename)))
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 	}
 
 	// Client made wrong request
 	c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
-	delete(clientsstates, strSessionId)
+	delete(clientsstates, strSessionID)
 
 	jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
 	helpmessage := "" + string(jsonbytes)
@@ -515,7 +515,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, expectfromclient stateOfFil
 // requestedAnUpload checks request params and recieves a new file.
 // If file already exists requestAnUpload responds with a json liteimp.JsonFileStatus.
 // We expect the client to do one more request with the rest of the file.
-func requestedAnUpload(c *gin.Context, strSessionId string) {
+func requestedAnUpload(c *gin.Context, strSessionID string) {
 	const op = "uploadserver.requestedAnUpload()"
 	var req liteimp.RequestForUpload
 	err := c.ShouldBindQuery(&req)
@@ -545,9 +545,9 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 
 	storagepath := GetPathWhereToStore(c)
 	// storagepath must exist
-	err = os.MkdirAll(storagepath,0700)
-	if err!=nil{
-		log.Println(logline(c,fmt.Sprintf("Can't create directory: %",err)))
+	err = os.MkdirAll(storagepath, 0700)
+	if err != nil {
+		log.Println(logline(c, fmt.Sprintf("Can't create directory: %s", err)))
 		return
 	}
 
@@ -557,7 +557,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	if err != nil {
 		c.Error(err)
 
-		delete(clientsstates, strSessionId)
+		delete(clientsstates, strSessionID)
 
 		log.Println(logline(c, fmt.Sprintf("upload is not allowed")))
 
@@ -582,7 +582,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 	// create a map to hold clients state.
 	clientsstates = make(map[string]stateOfFileUpload)
 
-	clientsstates[strSessionId] = stateOfFileUpload{
+	clientsstates[strSessionID] = stateOfFileUpload{
 		good:       true,
 		name:       name,
 		path:       storagepath,
@@ -614,7 +614,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 			return
 		}
 		// next: recive and put to channel, read from this channel and write, wait for end of write operation
-		errreciver, writeresult := startWriteStartRecieveAndWait(c, c.Request.Body,
+		writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
 			chWriteResult,
 			storagepath,
@@ -630,7 +630,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 				c.Error(writeresult.err)
 			}
 			// updqate client state
-			ptrstate := clientsstates[strSessionId]
+			ptrstate := clientsstates[strSessionID]
 			ptrstate.filestatus.Startoffset = writeresult.count
 			helpmessage := fmt.Sprintf("Server has written %d bytes, but expected number of bytes was %d bytes.", writeresult.count, lcontent)
 			c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.E(op, nil, errServerFailToWriteAllbytes, Error.ErrKindInfoForUsers, helpmessage)})
@@ -659,7 +659,7 @@ func requestedAnUpload(c *gin.Context, strSessionId string) {
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s, %s", namepart, namepartnew, err)))
 		}
-		log.Println(logline(c,fmt.Sprintf("Successfull upload: %s",newabsfilename)))
+		log.Println(logline(c, fmt.Sprintf("Successfull upload: %s", newabsfilename)))
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSeccessfullUpload})
 		return
 

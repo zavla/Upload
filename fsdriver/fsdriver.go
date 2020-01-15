@@ -1,7 +1,7 @@
 package fsdriver
 
 import (
-	Error "Upload/errstr"
+	Error "upload/errstr"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
