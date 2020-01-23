@@ -1,7 +1,6 @@
 package fsdriver
 
 import (
-	Error "upload/errstr"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
@@ -9,24 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-)
-
-//-----has own errors
-
-//--------------------
-
-var (
-//errCouldNotAddToFile                = *errstr.NewError("fsdriver", 1, "Could not add to file")
-//errPartialFileVersionTagReadError   = *errstr.NewError("fsdriver", 5, "Transaction Log file header read error.")
-//errPartialFileReadingError          = *errstr.NewError("fsdriver", 6, "Transaction Log file reading error.")
-//errPartialFileEmpty                 = *errstr.NewError("fsdriver", 7, "Transaction Log file is empty.")
-//errPartialFileCorrupted             = *errstr.NewError("fsdriver", 8, "Transaction Log file corrupted.")
-//errPartialFileWritingError          = *errstr.NewError("fsdriver", 9, "Transaction Log file writing error.")
-
-//errFileOpenForReadWriteError        = *errstr.NewError("fsdriver", 10, "Open file for read and write error.")
-//errForbidenToUpdateAFile            = *errstr.NewError("fsdriver", 11, "File already exists, can't overwrite.")
-//errPartialFileCantDelete            = *errstr.NewError("fsdriver", 12, "Transaction Log file unable to delete.")
-//errPartialFileVersionTagUnsupported = *errstr.NewError("fsdriver", 13, "Transaction Log file version unsupported.")
+	Error "upload/errstr"
 )
 
 const constwriteblocklen = (1 << 16) - 1
@@ -295,34 +277,31 @@ func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 	return ret, nil // supported version
 }
 
-// MayUpload decides if this file may be overwritten.
+// MayUpload decides if this file may be appended.
 // It looks for correspondent journal file for this file,
-// and use it to get a file state of the file being uploaded.
+// and use journal to get a file state of the file being uploaded.
+// Upload allowed when there is no such file OR when such file exists and has correspondent journal file.
+// MayUpload analize journal file for current state.
 func MayUpload(storagepath string, name string) (FileState, error) {
 	const op = "fsdriver.MayUpload()"
 	namepart := GetPartialJournalFileName(name)
 
-	wa, err := openToRead(storagepath, name)
-	if err != nil {
-		// no uploaded file, client may upload
-		return *NewFileState(0, nil, 0), nil
-
-	}
-	defer wa.Close()
 	wastat, err := os.Stat(filepath.Join(storagepath, name))
+	if os.IsNotExist(err) {
+		// no actual file, client may upload
+		return *NewFileState(0, nil, 0), nil
+	}
 	if err != nil {
-		// can't get actual file properties, error
+		// can't get stat for actual file. Who know why, error.
 		return *NewFileState(0, nil, 0),
-			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
+			Error.E(op, err, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "")
 	}
 
-	// reads log(journal) file
+	// next read journal file
 	wp, err := openToRead(storagepath, namepart)
 	if err != nil {
-		// != nil means no log file exists, this means actual file is already uploaded
-		// (otherwise it has a journal file near)
-		// or there is a reading error
-
+		// err != nil means no log file exists or read error.
+		// These states do not allow file change.
 		return *NewFileState(wastat.Size(), nil, wastat.Size()),
 			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"Upload/fsdriver"
+	"upload/fsdriver"
 	"flag"
 	"log"
 	"os"

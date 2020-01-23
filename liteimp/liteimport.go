@@ -1,17 +1,18 @@
 package liteimp
 
 import (
-	"upload/errstr"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	Error "upload/errstr"
 )
 
+// KeysessionID is a key in cookies
 const KeysessionID = "sessionId"
 
-var (
-	ErrSeccessfullUpload  = *errstr.NewError("ServerResponse", 1, "Upload successfully completed.")
-	ErrUploadIsNorAllowed = *errstr.NewError("ServerResponse", 2, "Upload is not allowed.")
+const (
+	ErrSuccessfullUpload = iota + Error.ErrorsCodesPackageLiteImp
+	ErrUploadIsNotAllowed
 )
 
 type RequestForUpload struct {

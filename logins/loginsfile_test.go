@@ -1,7 +1,7 @@
 package logins
 
 import (
-	"Upload/httpDigestAuthentication"
+	"upload/httpDigestAuthentication"
 	"testing"
 )
 

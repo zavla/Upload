@@ -6,20 +6,12 @@ import (
 	Error "upload/errstr"
 	"upload/fsdriver"
 
-	//"upload/httpDigestAuthentication"
-	//"upload/liteimp"
 	"upload/uploadclient"
-	//"github.com/google/uuid"
-	"golang.org/x/crypto/ssh/terminal"
-	//"strings"
 
-	//"crypto/sha1"
-	//"encoding/json"
 	"flag"
 	"fmt"
+	"golang.org/x/crypto/ssh/terminal"
 
-	//"hash"
-	//"io"
 	"context"
 	"log"
 	"net/http/cookiejar"
@@ -27,18 +19,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	//"strconv"
 	"sync"
 
 	"golang.org/x/net/publicsuffix"
-)
-
-var (
-// errors equality by Code(or Descr), not by value, because values may be return from goroutines simultaneously.
-//errServerRespondedWithBadJson = Error.E("uploader", nil, Error.ErrEncodingDecoding,"Server responded with bad json structure.")
-//errStatusContinueExpected     = *errstr.NewError("uploader", 2, "We expect status 100-Continue.")
-//errServerDidNotAdmitUpload    = *errstr.NewError("uploader", 8, "Server did not admit upload. We can't be sure of successfull upload.")
-
 )
 
 var where uploadclient.ConnectConfig
@@ -209,7 +192,8 @@ func getFilenames(dir string, chNames chan<- string) {
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
 		isarchiveset, _ := getArchiveAttribute(path)
-		if isarchiveset {
+		if isarchiveset ||
+			true { //DEBUG!!!
 			chNames <- path
 		}
 		return nil // next file please

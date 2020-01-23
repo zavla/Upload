@@ -1,7 +1,7 @@
 package uploadserver
 
 import (
-	"Upload/fsdriver"
+	"upload/fsdriver"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,4 +95,53 @@ func addTest(testname string, tests *[]test, producer func(ch chan []byte), expe
 		},
 	})
 	return
+}
+func TestClean(t *testing.T) {
+	p := []string{`\\?\filename`, `\\.\c:\foo\filename`, `/foo/../../bar`, `/foo/filename`, `.file`, `/\file`, `.\file`, ".", `c:\windows\system32\..\filename`, `\filename`, `/filename`, `\\computer\dir\filename`, `/../../filename`}
+	for i, s := range p {
+		// a, err := filepath.Rel("\\", s)
+		// if err != nil {
+		// 	t.Errorf("%d %s", i, s)
+		// 	continue
+		// }
+		// t.Errorf("%d %s \t ->\t %s", i, s, a)
+		a := filepath.VolumeName(s)
+		t.Errorf("%d \t volume(%s) \t ->\t %s", i, s, a)
+
+		a = filepath.Clean(s)
+		t.Errorf("%d \t clean(%s) \t ->\t %s", i, s, a)
+
+	}
+
+}
+
+func Test_validatefilepath(t *testing.T) {
+	type args struct {
+		pathstr string
+		maxlen  int
+	}
+	const m = 256
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+		{"1", args{"/filename.ext", m}, false},
+		{"1", args{`\.filename.ext`, m}, false},
+		{"1", args{`.filename.ext`, m}, false},
+		{"1", args{`c:\.filename.ext`, m}, true},
+		{"1", args{`\\.\c\.filename.ext`, m}, true},
+		{"1", args{`\\?\c/filename.ext`, m}, true},
+		{"1", args{`\c\.f i l e name.ext`, m}, false},
+		{"1", args{`\c\long path$\f i l e name.ext`, m}, false},
+		{"1", args{`long path$\..\f i l e name.ext`, m}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validatefilepath(tt.args.pathstr, tt.args.maxlen); (err != nil) != tt.wantErr {
+				t.Errorf("validatefilepath() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }

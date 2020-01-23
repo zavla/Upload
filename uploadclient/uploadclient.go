@@ -48,7 +48,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
 	if err != nil {
 		// let it be an error because the first time we send a file we should know its size.
-		// Later, when we can't _resume_ upload we will wait for the file to appear. May be disk will be attached.
+		// Later, when we can't _resume_ upload we will wait for the file to appear. May be a disk will be attached.
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 	// closes file on exit
@@ -133,17 +133,11 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				// file may appear again any time and we will continue upload
 				// TODO(zavla): save filename to queue!!!
 
-				// delayCtx, _ := context.WithTimeout(ctx, waitForFileToBecomeAvailable)
-				// select {
-				// case <-delayCtx.Done():
-				// 	// delayCtx signalled
-				// }
 			}
 
 			continue // retries
 		}
 
-		log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusAccepted {
 			_ = resp.Body.Close()
 
@@ -215,7 +209,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			log.Printf("%s", ret)
 			return ret
 		}
-
+		//log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
 			// server responded "a file already exists" with JSON
 			filestatus, debugbytes, err := decodeJSONinBody(resp)
@@ -255,14 +249,15 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 
 		{
-			log.Printf("DEBUG:Server responded with status: %s", resp.Status)
 			b := make([]byte, 500)
 			n, _ := resp.Body.Read(b)
 			b = b[:n]
-			log.Printf("DEBUG:Server responded with body: %s", string(b))
+
+			log.Printf("DEBUG: service responded with status %s, the response body was %s", resp.Status, string(b))
+
 		}
 		// here goes other errors and http.statuses:
-		// upload failed for some reason maybe timeouted. Retry with current cookie.
+		// upload failed for some reason maybe timeouted. Lets retry with current cookies.
 		time.Sleep(waitBeforeRetry)
 
 	}

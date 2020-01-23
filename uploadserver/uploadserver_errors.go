@@ -11,9 +11,11 @@ const (
 	errContentHeaderRequired
 	errServerFailToWriteAllbytes
 	errClientRequestShouldBindToJSON
-	errSessionEnded
+	errSessionEnded = 2008
 	errWrongFuncParameters
 	errSha1CheckFailed
+	errPathError
+	errInternalServiceError
 )
 
 func init() {
@@ -25,7 +27,9 @@ func init() {
 	Error.I18[errContentHeaderRequired] = "You must specify a Content-Length header for your new file."
 	Error.I18[errServerFailToWriteAllbytes] = "Server failed to write all the bytes."
 	Error.I18[errClientRequestShouldBindToJSON] = "Your request must bind to a particular JSON structure."
-	Error.I18[errSessionEnded] = "Your session has ended."
+	Error.I18[errSessionEnded] = "A service session has ended."
 	Error.I18[errWrongFuncParameters] = "Wrong input parameter(s)."
 	Error.I18[errSha1CheckFailed] = "Checksum of the file is wrong."
+	Error.I18[errPathError] = "Error in a path."
+	Error.I18[errInternalServiceError] = "Service internal error."
 }

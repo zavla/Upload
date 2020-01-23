@@ -1,9 +1,9 @@
 package main
 
 import (
-	"Upload/httpDigestAuthentication"
-	"Upload/logins"
-	"Upload/uploadserver"
+	"upload/httpDigestAuthentication"
+	"upload/logins"
+	"upload/uploadserver"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -22,8 +22,6 @@ import (
 )
 
 var bindToAddress string
-
-//const bindToAddress = "1cprogrammer:8888"
 
 var (
 //errCantWriteLogFile = Error.E("uploadservermain", nil, Error.ErrFileIO, "Can not start. Can't write to a log file.")
@@ -84,7 +82,7 @@ func main() {
 	}
 	defer froot.Close()
 
-	uploadserver.Storageroot = storageroot
+	uploadserver.ConfigThisService.Storageroot = storageroot
 
 	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
@@ -92,7 +90,8 @@ func main() {
 		log.Printf("Can't find starting directory of server executable (used readonly). %s", err)
 		return
 	}
-	uploadserver.RunningFromDir = rundir
+	uploadserver.ConfigThisService.RunningFromDir = rundir
+
 	// reads logins passwords
 	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(configdir, "logins.file"))
 	loginsMap := getMapOfLogins(loginsstruct)
@@ -133,7 +132,7 @@ func main() {
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 	}
-	log.Println("Uploadserver main() exited.")
+	log.Println("uploadserver main() exited.")
 
 }
 

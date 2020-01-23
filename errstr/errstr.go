@@ -10,17 +10,19 @@ import (
 )
 
 // A New way of doing errors things.
+
 const (
 	// exported consts used throughout packages
-	// I use unique error codes amongst many related packages
-	// 0 - 999 reserved error codes
-	// codes have ranges for every package
+	// I use unique errors codes amongst many related packages.
+	// 0 - 999 reserved error codes.
+	// Next constants define codes ranges for every package.
 	ErrorsCodesPackageUploader                 = 1000
 	ErrorsCodesPackageUploadserver             = 2000
 	ErrorsCodesPackageLogins                   = 3000
 	ErrorsCodesPackageFsdriver                 = 4000
 	ErrorsCodesPackageCmdUploaderserver        = 5000
 	ErrorsCodesPackageHttpDigestAuthentication = 6000
+	ErrorsCodesPackageLiteImp                  = 7000
 )
 const (
 	// Exported errors for all packages:
@@ -39,7 +41,20 @@ const (
 	ErrEncodingDecoding
 	// ErrLimits for errors concerning limits
 	ErrLimits
+	// // ErrUploadIsNotAllowed
+	// ErrUploadIsNotAllowed
+	// // ErrSeccessfullUpload
+	// ErrSeccessfullUpload
 )
+
+func ToUser(op string, code int16, descr string) error {
+	return E(op, nil, code, 0, descr)
+}
+
+// New error
+func New(op string, err error, code int16) error {
+	return E(op, err, code, 0, "")
+}
 
 // E creates new Error based on base error, I use Go1.13 errors.Unwrap, errors.Is, errors.As
 func E(op string, err error, code int16, kind Kind, descr string) error {
@@ -78,30 +93,59 @@ type Error struct {
 	Err   error // underlying error
 }
 
-// error interface
+// Error satisfies error interface.
+// The Error.Kind defines the format of string representation of Error.
+// ErrUseKindFromBaseError = default is to print all hierarchy for current error.
+// ErrKindInfoForUsers = is for user friendly messages.
 func (e *Error) Error() string {
-	const newline = ":\n\t"
 	var b bytes.Buffer
-	b.WriteString("Error: ")
-	b.WriteString(e.Op)
 
-	b.WriteString(": ")
-	b.WriteString(strconv.Itoa(int(e.Code)))
+	switch e.Kind {
+	case ErrKindInfoForUsers:
+		// user friendly message
+		b.WriteString("from ")
+		b.WriteString(e.Op)
+		b.WriteString(": ")
+		if I18 != nil {
+			b.WriteString(I18[e.Code])
+		}
+		if e.Descr != "" {
+			b.WriteString(": ")
+			if I18m != nil {
+				// there is a translation
+				b.WriteString(I18m[e.Descr])
+			} else {
+				// internationalization is not loaded
+				b.WriteString(e.Descr)
 
-	b.WriteString(": ")
-	b.WriteString(e.Kind.String())
+			}
 
-	b.WriteString(":")
-	b.WriteString(e.Descr)
+		}
 
-	b.WriteString(":")
-	if I18 != nil {
-		b.WriteString(I18[e.Code])
-	}
+	default:
+		// prints inner details
+		b.WriteString("Error: ")
+		b.WriteString(e.Op)
 
-	b.WriteString(newline)
-	if e.Err != nil {
-		b.WriteString(e.Err.Error())
+		b.WriteString(": ")
+		b.WriteString(strconv.Itoa(int(e.Code)))
+
+		b.WriteString(": ")
+		b.WriteString(e.Kind.String())
+
+		b.WriteString(":")
+		b.WriteString(e.Descr)
+
+		b.WriteString(":")
+		if I18 != nil {
+			b.WriteString(I18[e.Code])
+		}
+
+		const newline = ":\n\t"
+		b.WriteString(newline)
+		if e.Err != nil {
+			b.WriteString(e.Err.Error()) // RECURSIVE Error print
+		}
 	}
 	return b.String()
 }
@@ -111,8 +155,23 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// I18 must be filled with messages in selected language
+// I18 a map for error messages in selected language
 var I18 = make(map[int16]string)
+
+// I18m is a map for user messages
+var I18m = make(map[string]string)
+
+// I18text localizes
+func I18text(id string, args ...interface{}) string {
+	if I18m != nil {
+		m, ok := I18m[id]
+		if ok {
+			return fmt.Sprintf(m, args)
+
+		}
+	}
+	return fmt.Sprintf(id, args...)
+}
 
 //------------------------------------------
 // Next line of code are an old way of working with errors in this module.

@@ -1,7 +1,7 @@
 package uploadserver
 
 import (
-	"Upload/liteimp"
+	"upload/liteimp"
 	"fmt"
 	"html/template"
 	"log"
@@ -42,7 +42,7 @@ func GetFileList(c *gin.Context) {
 
 	}
 	nameslist := fillnameslist(storagepath, isnamefilter, reg)
-	tmpl, err := template.ParseFiles(filepath.Join(RunningFromDir, "htmltemplates/filelist.html"))
+	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filelist.html"))
 	if err != nil {
 		log.Printf("%s", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("can't parse html template ./htmltemplates/filelist.html : %s", err)})

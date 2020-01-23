@@ -20,7 +20,7 @@ const (
 )
 
 func init() {
-	// for Uploader package
+	// for uploader package
 	Error.I18[errCantOpenFileForReading] = "Файл не открывается на чтение."
 	Error.I18[errCantGetFileProperties] = "Система не возвращает свойства файла."
 	Error.I18[errCantCreateHTTPRequest] = "Ошибка создания объекта языка."
