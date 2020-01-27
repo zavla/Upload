@@ -292,7 +292,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		return *NewFileState(0, nil, 0), nil
 	}
 	if err != nil {
-		// can't get stat for actual file. Who know why, error.
+		// can't get stat for actual file. Who knows why, error.
 		return *NewFileState(0, nil, 0),
 			Error.E(op, err, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "")
 	}
@@ -314,7 +314,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 	}
 
 	var fromLog FileState
-	var journaloffset int64
+	var journaloffset int64 // journal file position
 	var errlog error
 
 	// here log(journal) file already exists
@@ -328,55 +328,78 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		// here we read journal file
 		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer2(ver, wp)
 	default: // unknown version
-		return *NewFileState(0, nil, 0), Error.E(op, err, errForbidenToUpdateAFile, 0, "")
+		return *NewFileState(0, nil, 0), Error.E(op, err, errPartialFileVersionTagUnsupported, 0, "")
 	}
 
-	if ErrorError, ok := errlog.(*Error.Error); ok && ErrorError.Code == errPartialFileReadingError { // can't do anything with journal file, even reading
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize),
-			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // DO NOTHING with file
-	}
-
-	// Here struct fromLog has last correct offset of the file being uploaded, fromLog.Startoffset.
 	if errlog != nil {
+		// we need Code field in error
+		errlogError, _ := errlog.(*Error.Error)
+		if errlogError.Code == errPartialFileReadingError {
+			// Here errlog indicates we can not read journal file.
+			// can't do anything with journal file, even reading.
+			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize),
+				errlog
+		}
+
+		// Here errlog is a logical error in journal file.
 		// log(journal) file needs repair.
-		// simple case is when actual file size == fromLog.startoffset
+		// A simple case is when actual file size == fromLog.startoffset.
 		// It is when an upload did not complete.
 		if fromLog.FileSize != 0 && // log at least has filesize
 			fromLog.Startoffset == wastat.Size() && // offset is equal to actual file size
-			fromLog.FileSize > fromLog.Startoffset { // upload not completed yet
-			// may be that uploadserver was shutted down in the process of adding to journal file
+			fromLog.FileSize > fromLog.Startoffset { // maybe half of a file have been downloaded
+
+			// May be that uploadserver was shutted down in the process of writing to the journal file.
 			// try to repair journal file to lcontinue upload
-			if err := wp.Truncate(journaloffset); err == nil { // ==
-				// here journal is repaired
-				// may continue
+			if err := wp.Truncate(journaloffset); err == nil {
+				// Here the journal is repaired.
+				// One may continue to upload the actual file.
 				return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
 			}
 		}
 
 		// here journal file is considdered to be in corrupted state
 		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()),
-			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // error in log file blocks updates
+			Error.E(op, err, errPartialFileCorrupted, 0, "") // error in log file blocks updates to actual file
 	}
-	if wastat.Size() == fromLog.FileSize && fromLog.Startoffset == fromLog.FileSize {
-		// the actual file is correct and completly uploaded,
-		// but partial journal file still exists.
-		// TODO: move journal somewhere?
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
-			Error.E(op, err, errForbidenToUpdateAFile, 0, "") // totaly correct file
-	}
+	// Here the journal file has been read with no error.
+	// Here struct fromLog has last correct offset of the actual file being uploaded, fromLog.Startoffset.
+	// Lets consider the journal file fromLog.FileSize a correct expected actual file size.
+
 	if wastat.Size() > fromLog.FileSize {
-		// actual file already bigger then expected! Impossible unless a user has intervened.
+		// actual file already bigger then expected!
+		// Impossible unless a user has intervened or journal file is bad.
 		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.", name, wastat.Size(), fromLog.Startoffset)
 		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
-			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
+			Error.E(op, err, errActualFileAlreadyBiggerThanExpacted, 0, "")
 	}
+
+	if wastat.Size() == fromLog.FileSize {
+
+		if fromLog.Startoffset == fromLog.FileSize {
+			// The actual file is correct and completly uploaded, but partial journal file still exists.
+			// Return an error as a special indication of this inconsistency, no need to allow further upload.
+			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+				Error.E(op, err, errActualFileIsAlreadyCompleteButJournalFileExists, 0, "")
+		}
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+			Error.E(op, err, errActualFileIsAlreadyCompleteButJournalFileIsInconsistent, 0, "")
+
+	}
+	// CASE wastat.Size() < fromLog.FileSize
 	if wastat.Size() == fromLog.Startoffset {
-		// upload may continue
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+		// Upload may continue, current actual file size corresponds to saved offset in journal file.
+		// Return no error.
+		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+			nil
 	}
-	// otherwise we need to read content of actual file and compare it with crc64 sums of every block in journal file
-	// TODO(zavla): run thorough content compare with md5 cheksums of blocks
-	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset), Error.E(op, err, errForbidenToUpdateAFile, 0, "")
+	// Otherwise we need to read content of actual file and
+	// compare its blocks's MD5 with MD5 sums of every block in journal file
+	// to find the maximum correct range in actual file.
+
+	// TODO(zavla): run thorough content compare with MD5 cheksums of blocks
+	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
+		Error.E(op, err, errActualFileNeedsRepare, 0, "")
 }
 
 // GetFileSha1 gets sha1 of a file as a []byte

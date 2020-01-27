@@ -1,10 +1,10 @@
 package uploadserver
 
 import (
-	"upload/fsdriver"
 	"os"
 	"path/filepath"
 	"testing"
+	"upload/fsdriver"
 )
 
 func getbytes(value byte, size int) []byte {
@@ -95,24 +95,6 @@ func addTest(testname string, tests *[]test, producer func(ch chan []byte), expe
 		},
 	})
 	return
-}
-func TestClean(t *testing.T) {
-	p := []string{`\\?\filename`, `\\.\c:\foo\filename`, `/foo/../../bar`, `/foo/filename`, `.file`, `/\file`, `.\file`, ".", `c:\windows\system32\..\filename`, `\filename`, `/filename`, `\\computer\dir\filename`, `/../../filename`}
-	for i, s := range p {
-		// a, err := filepath.Rel("\\", s)
-		// if err != nil {
-		// 	t.Errorf("%d %s", i, s)
-		// 	continue
-		// }
-		// t.Errorf("%d %s \t ->\t %s", i, s, a)
-		a := filepath.VolumeName(s)
-		t.Errorf("%d \t volume(%s) \t ->\t %s", i, s, a)
-
-		a = filepath.Clean(s)
-		t.Errorf("%d \t clean(%s) \t ->\t %s", i, s, a)
-
-	}
-
 }
 
 func Test_validatefilepath(t *testing.T) {

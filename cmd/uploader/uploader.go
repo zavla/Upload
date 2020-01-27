@@ -3,6 +3,7 @@ package main
 // substitution is
 // curl.exe -v -X POST 'http://127.0.0.1:64000/upload/zahar?&Filename="sendfile.rar"' -T .\testbackups\sendfile.rar --anyauth --user zahar
 import (
+	"time"
 	Error "upload/errstr"
 	"upload/fsdriver"
 
@@ -22,6 +23,7 @@ import (
 	"sync"
 
 	"golang.org/x/net/publicsuffix"
+	
 )
 
 var where uploadclient.ConnectConfig
@@ -68,7 +70,7 @@ func main() {
 		}
 		where.ToURL += *username
 	}
-
+	
 	defer func() {
 		// on panic we will write to log file
 		if err := recover(); err != nil {
@@ -116,38 +118,65 @@ func main() {
 	// TODO(zavla): autotls?
 	// TODO(zavla): CSRF, do not mix POST request with URL parametres!
 	// TODO(zavla): in server calculate speed of upload.
-	mainCtx, callToCancel := context.WithCancel(context.Background())
+	mainCtx, callmeToCancel := context.WithCancel(context.Background())
 
-	runWorkers(mainCtx, chNames)
+	runWorkers(mainCtx, callmeToCancel, chNames)
 	// here we are when runWorkers has exited
-	callToCancel()
+
 	log.Println("Normal exit.")
 }
 
-// runWorkers starts goroutines
-func runWorkers(oneForAllCtx context.Context, ch chan string) {
+// runWorkers starts payload goroutines.
+// Every gorouting is then allowed to cancel the whole request after encouning an athorization error.
+func runWorkers(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, ch chan string) {
 	var wg sync.WaitGroup
+	be1 := true
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 
-		go worker(oneForAllCtx, &wg, ch)
+		go worker(oneForAllCtx, callmeToCancel, &wg, ch)
+
+		// pause after first worker has been run
+		if be1 {
+
+			time.Sleep(time.Millisecond * 200)
+			be1 = false
+		}
 	}
 	wg.Wait()
 
 }
 
-// worker takes from channel and sends files
-func worker(oneForAllCtx context.Context, wg *sync.WaitGroup, ch chan string) {
+// worker takes from channel and sends files.
+// This peticular workers ARE allowed to cancel the whole context oneForAllCtx in case of authorization error.
+func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg *sync.WaitGroup, ch chan string) {
 	defer wg.Done()
 
 	for name := range ch {
+		select {
+		case <-oneForAllCtx.Done():
+			log.Println("cancel signal recieved")
+			return
+		default:
+		}
+		err := prepareAndSendAFile(oneForAllCtx, name, &where)
+		if errError, ok := err.(*Error.Error); ok && errError.Code == uploadclient.ErrAuthorizationFailed {
+			callmeToCancel()
+			log.Printf("cancelling the whole request")
+			return
+			// select {
+			// case _, ok := <-ch:
+			// 	if !ok {
+			// 		close(ch) // cancels other workers, authorization failed.
 
-		prepareAndSendAFile(oneForAllCtx, name, &where)
+			// 	}
+			// }
+		}
 	}
 	return
 }
 
-func prepareAndSendAFile(ctx context.Context, filename string, config *uploadclient.ConnectConfig) {
+func prepareAndSendAFile(ctx context.Context, filename string, config *uploadclient.ConnectConfig) error {
 	const op = "uploader.prepareAndSendAFile()"
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
@@ -160,7 +189,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
 		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
-		return
+		return err
 	}
 
 	err = uploadclient.SendAFile(ctx, config, fullfilename, jar, bsha1)
@@ -173,11 +202,11 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 			log.Printf("%s", Error.E(op, err, errMarkFileFailed, 0, ""))
 		}
 		// SUCCESS
-		return
+		return nil
 	}
 
 	log.Printf("%s", err)
-	return
+	return err // every error is returned upward, including authorization error.
 }
 
 // getFilenames collects files names in a directory and sends them to channel chNames.

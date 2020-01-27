@@ -6,7 +6,7 @@ import (
 )
 
 func TestMayUpload(t *testing.T) {
-	storegepath := "d:/tempstorage"
+	storegepath := "testdata"
 	type ret struct {
 		filestate FileState
 		err       error
@@ -25,11 +25,11 @@ func TestMayUpload(t *testing.T) {
 		name: "falseerrorInJournal",
 		args: args{
 			storagepath: storegepath,
-			name:        "ubcd_sklad_2010_2019-09-06T18-05-00-440-differ.dif", // ".partialinfo" will be added in MayUpload
+			name:        "fop1_2019-09-01T13-30-00-660-differ.dif",
 			ret: ret{
 				filestate: FileState{
-					fileProperties: fileProperties{FileSize: 247431168},
-					Startoffset:    146896703,
+					fileProperties: fileProperties{FileSize: 69632},
+					Startoffset:    0,
 				},
 				err: nil,
 			},
@@ -39,10 +39,10 @@ func TestMayUpload(t *testing.T) {
 	for _, tt := range tests {
 		gotFilestate, goterr := MayUpload(tt.args.storagepath, tt.args.name)
 		if !reflect.DeepEqual(gotFilestate, tt.args.ret.filestate) {
-			t.Errorf("test %s, return filestate, want %#v, got %#v", tt.name, tt.args.ret.filestate, gotFilestate)
+			t.Errorf("test %s, \nwant %#v, \ngot %#v", tt.name, tt.args.ret.filestate, gotFilestate)
 		}
 		if !reflect.DeepEqual(goterr, tt.args.ret.err) {
-			t.Errorf("test %s, return error, want %#v, got %#v", tt.name, tt.args.ret.err, goterr)
+			t.Errorf("test %s, \nwant %v,\ngot %v", tt.name, tt.args.ret.err, goterr)
 		}
 	}
 }

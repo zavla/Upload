@@ -35,7 +35,12 @@ var clientsstates map[string]stateOfFileUpload
 var usedfiles sync.Map
 var emptysha1 [20]byte
 
-type config struct {
+// Config is a type that hold all the configuration of this service.
+type Config struct {
+	Logwriter io.Writer
+	Configdir string
+	// BindAddress is an address of this service
+	BindAddress string
 	// Storageroot holds path to file store for this instance.
 	// Must be absolute.
 	Storageroot string
@@ -46,7 +51,7 @@ type config struct {
 }
 
 // ConfigThisService for config
-var ConfigThisService config
+var ConfigThisService Config
 
 const constrecieveblocklen = (1 << 16) - 1
 const constmaxpath = 32767 - 6000 // reserve space for the service storage root
@@ -294,7 +299,11 @@ func logline(c *gin.Context, msg string) (ret logLine) {
 	ret.ClientIP = c.ClientIP()
 	ret.Path = c.Request.URL.Path + "?" + c.Request.URL.RawQuery
 	strSessionID := c.GetString(liteimp.KeysessionID)
-	ret.ErrorMessage = fmt.Sprintf("in session ID %s: '%s'", strSessionID, msg)
+	msgformat := `session %s: "%s"`
+	if strSessionID != "" {
+		msgformat = `%s "%s"` // presumably for new session messages
+	}
+	ret.ErrorMessage = fmt.Sprintf(msgformat, strSessionID, msg)
 	return // named
 }
 
@@ -502,7 +511,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 		}
-		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", filepath.Join(storagepath, name))))
+		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", name)))
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSuccessfullUpload})
 		return
@@ -690,7 +699,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 		}
-		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", filepath.Join(storagepath, name))))
+		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", lockobject)))
 		c.JSON(http.StatusAccepted, gin.H{"error": Error.ToUser(op, liteimp.ErrSuccessfullUpload, "").Error()})
 		return
 

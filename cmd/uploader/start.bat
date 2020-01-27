@@ -1,0 +1,1 @@
+.\uploader.exe --username zahar --dir .\testdata\testbackups\

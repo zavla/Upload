@@ -56,7 +56,7 @@ func New(op string, err error, code int16) error {
 	return E(op, err, code, 0, "")
 }
 
-// E creates new Error based on base error, I use Go1.13 errors.Unwrap, errors.Is, errors.As
+// E creates new Error based on base error. Below Error has .Unwrap().
 func E(op string, err error, code int16, kind Kind, descr string) error {
 	if kind == ErrUseKindFromBaseError {
 		if errError, ok := err.(*Error); ok {
@@ -130,20 +130,17 @@ func (e *Error) Error() string {
 		b.WriteString(": ")
 		b.WriteString(strconv.Itoa(int(e.Code)))
 
-		b.WriteString(": ")
-		b.WriteString(e.Kind.String())
-
-		b.WriteString(":")
-		b.WriteString(e.Descr)
-
 		b.WriteString(":")
 		if I18 != nil {
 			b.WriteString(I18[e.Code])
 		}
 
-		const newline = ":\n\t"
-		b.WriteString(newline)
+		b.WriteString(":")
+		b.WriteString(e.Descr)
+
 		if e.Err != nil {
+			const newline = ":\n\t"
+			b.WriteString(newline)
 			b.WriteString(e.Err.Error()) // RECURSIVE Error print
 		}
 	}

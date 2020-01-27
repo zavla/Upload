@@ -20,3 +20,5 @@ cmd/uploader/uploader
 .idea/modules.xml
 .idea/Upload.iml
 .idea/vcs.xml
+*.exe~
+logins/logins.file

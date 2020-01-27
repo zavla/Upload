@@ -1,9 +1,9 @@
 package fsdriver
 
 import (
-	Error "upload/errstr"
 	"encoding/binary"
 	"io"
+	Error "upload/errstr"
 )
 
 // startstructver2 is a header of version 2 journal
@@ -44,9 +44,9 @@ func (r JournalRecord) ver2() journalrecordver2 {
 }
 
 // ReadCurrentStateFromJournalVer2 reads special version of journal file.
-// Check correctness of journal.
-// Every change to format of journal file uses its own func.
-// TODO(zavla): may be use protobuf to store journal records
+// It returns last correct log record and an error (either reading error or logical error).
+// It checks correctness of the log(journal) and may return a logical error.
+// Every format version of a journal file uses its own such function.
 func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 	const op = "fsdriver.ReadCurrentStateFromJournalVer2()"
 	var startstruct startstructver2
@@ -100,7 +100,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 			if err == io.ErrUnexpectedEOF { // read ended unexpectedly
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					Error.E(op, nil, errPartialFileCorrupted, 0, "")
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			} else if err != nil && err != io.EOF { // read failed, use lastsuccessrecord
 				//returns previous good record
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
@@ -115,7 +115,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// current record do not corresond to expected file size
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					Error.E(op, nil, errPartialFileCorrupted, 0, "")
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			case currrecord.Startoffset == prevrecord.Startoffset &&
 				currrecord.Action == successwriting &&
 				prevrecord.Action == startedwriting:
@@ -137,7 +137,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// we reach end of file. EOF is not an error in data. We have read the last record.
 				lasterr = nil
 				if maybeErr {
-					lasterr = Error.E(op, nil, errPartialFileCorrupted, 0, "")
+					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "")
 				}
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
@@ -146,7 +146,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// current record is bad.
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					Error.E(op, nil, errPartialFileCorrupted, 0, "")
+					Error.E(op, err, errPartialFileCorrupted, 0, "")
 			} // end switch
 			prevrecord = currrecord // makes previous record a current one
 			// continue to next record

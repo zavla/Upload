@@ -16,6 +16,8 @@ const (
 	errSha1CheckFailed
 	errPathError
 	errInternalServiceError
+	// ErrAuthorizationFailed is used in cmd/uploadserver.main()
+	ErrAuthorizationFailed
 )
 
 func init() {
@@ -32,4 +34,5 @@ func init() {
 	Error.I18[errSha1CheckFailed] = "Checksum of the file is wrong."
 	Error.I18[errPathError] = "Error in a path."
 	Error.I18[errInternalServiceError] = "Service internal error."
+	Error.I18[ErrAuthorizationFailed] = "Authorization failed (package uploadserver)."
 }

@@ -1,9 +1,9 @@
 package fsdriver
 
 import (
-	Error "upload/errstr"
 	"encoding/binary"
 	"io"
+	Error "upload/errstr"
 )
 
 // startstructver1 is a header of version 1 of journal.
@@ -38,9 +38,9 @@ func (r JournalRecord) ver1() journalrecordver1 {
 	}
 }
 
-// ReadCurrentStateFromJournalVer1 reads log(journal) file.
-// It returns last correct log record.
-// It checks correctness of the log(journal).
+// ReadCurrentStateFromJournalVer1 reads special version of journal file.
+// It returns last correct log record and an error (either reading error or logical error).
+// It checks correctness of the log(journal) and may return a logical error.
 // Every format version of a journal file uses its own such function.
 func ReadCurrentStateFromJournalVer1(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 	const op = "fsdriver.ReadCurrentStateFromJournalVer1()"

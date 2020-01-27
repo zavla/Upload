@@ -103,8 +103,10 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 	// cycle for some errors that can be tolerated
 	for i := 0; i < 3; i++ {
+
+		// first we check to see a cancel signal
 		select {
-		case <-ctx.Done():
+		case <-ctx.Done(): // cancel signal
 			ret = Error.E(op, nil, errCanceled, 0, "")
 			log.Printf("%s", ret)
 			return ret
@@ -150,7 +152,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 		if resp.StatusCode == http.StatusUnauthorized && authorizationsent {
 			log.Printf("Username or password is incorrect.")
-			return Error.E(op, nil, errAuthorizationFailed, 0, "")
+			return Error.E(op, nil, ErrAuthorizationFailed, 0, "")
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
 			wwwauthstr := resp.Header.Get("WWW-Authenticate")
