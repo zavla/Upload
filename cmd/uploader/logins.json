@@ -1,0 +1,11 @@
+{
+  "version": "1",
+  "logins": [
+   {
+    "id": "zahar",
+    "email": "",
+    "Passwordhash": "b51b357d763e48e816a7ff02ce66123b",
+    "disabled": false
+   }
+  ]
+ }

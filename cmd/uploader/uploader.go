@@ -6,12 +6,13 @@ import (
 	"time"
 	Error "upload/errstr"
 	"upload/fsdriver"
+	"upload/httpDigestAuthentication"
+	"upload/logins"
 
 	"upload/uploadclient"
 
 	"flag"
 	"fmt"
-	"golang.org/x/crypto/ssh/terminal"
 
 	"context"
 	"log"
@@ -22,21 +23,24 @@ import (
 
 	"sync"
 
+	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/publicsuffix"
-	
 )
 
 var where uploadclient.ConnectConfig
 
 func main() {
 	const op = "main()"
-	logname := flag.String("log", "", "log file.")
-	file := flag.String("file", "", "a file you want to upload.")
-	dirtomonitor := flag.String("dir", "", "a directory which to upload.")
-	username := flag.String("username", "", "user name of an Upload service.")
-	uploadServerURL := flag.String("service", `http://127.0.0.1:64000/upload`, "URL of the Upload service.")
-	askpassword := flag.Bool("askpassword", true, "will ask your password for the Upload service.")
-	//passwordfile := flag.String("passwordfile","","a file with password (Windows DPAPI encrypted).")
+	const constRealm = "upload" // this is for http digest authantication predefined realm, used to store passwords in a file.
+
+	logname := flag.String("log", "", "a log `file`.")
+	paramFile := flag.String("file", "", "a `file` you want to upload.")
+	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
+	username := flag.String("username", "", "a user `name` of an Upload service.")
+	uploadServerURL := flag.String("service", `http://127.0.0.1:64000/upload`, "`URL` of the Upload service.")
+	//askpassword := flag.Bool("askpassword", true, "will ask a user `password` for the Upload service.")
+	paramPasswordfile := flag.String("passwordfile", "", "a `file` with password.")
+	savepassword := flag.Bool("savepassword", false, "will save a password to a file specified with passwordfile.")
 
 	flag.Parse()
 	if len(os.Args[1:]) == 0 {
@@ -47,30 +51,80 @@ func main() {
 	// check required parameters
 	where.ToURL = *uploadServerURL
 
-	if *file == "" && *dirtomonitor == "" {
+	if *paramFile == "" && *paramDirtomonitor == "" {
 		log.Printf("--file or --dir must be specified.")
 		os.Exit(1)
 		return
 	}
-	// asks password only if there is a specified user
-	if *askpassword && *username != "" {
-		fmt.Printf("\nEnter user '%s' password: ", *username)
-		password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
-		println("")
-		if err != nil {
-			fmt.Printf("Reading password error: %s", err)
-			return
-		}
-		where.Password = string(password)
+	if *savepassword && *paramPasswordfile == "" {
+		log.Println("--passwordfile is not specified.")
+		os.Exit(1)
+		return
 	}
+	// clean paths
+	var file, dirtomonitor, passwordfile string = "", "", ""
+	if *paramFile != "" {
+		file, _ = filepath.Abs(*paramFile)
+	}
+	if *paramDirtomonitor != "" {
+		dirtomonitor, _ = filepath.Abs(*paramDirtomonitor)
+	}
+	if *paramPasswordfile != "" {
+		passwordfile, _ = filepath.Abs(*paramPasswordfile)
+	}
+
+	// passwords only if there is a specified user
 	if *username != "" {
 		where.Username = *username
+
+		loginsSt, err := logins.ReadLoginsJSON(passwordfile)
+		if err != nil {
+			log.Printf("%s", err)
+			return
+		}
+
+		if *savepassword {
+			fmt.Printf("\nEnter user '%s' password: ", *username)
+
+			password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+			// DEBUG!!!
+			// var b []byte
+			// password := append(b, "pass"...)
+
+			println("")
+			if err != nil {
+				fmt.Printf("Reading password error: %s", err)
+				return
+			}
+
+			hashUsernameRealmPassword := httpDigestAuthentication.HashUsernameRealmPassword(where.Username, constRealm, string(password))
+			_, err = loginsSt.Add(*username, "", hashUsernameRealmPassword)
+			if err != nil {
+				fmt.Printf("Adding login to a login list failed: %s\n", err)
+				return
+			}
+			loginsSt.Save()
+			if err != nil {
+				fmt.Printf("Saving password file failed: %s\n", err)
+				return
+			}
+			// EXIT after save
+			fmt.Printf("Password saved.\n")
+			return
+		}
+		loginFromFile, _, err := loginsSt.Find(where.Username, false)
+		if err != nil {
+			fmt.Printf("Login '%s' is not found in logins file %s", where.Username, passwordfile)
+			return
+		}
+		where.PasswordHash = loginFromFile.Passwordhash
+
 		if where.ToURL[len(where.ToURL)-1] != '/' {
 			where.ToURL += "/"
 		}
 		where.ToURL += *username
 	}
-	
+
 	defer func() {
 		// on panic we will write to log file
 		if err := recover(); err != nil {
@@ -102,13 +156,13 @@ func main() {
 	// channel with filenames
 	chNames := make(chan string, 2)
 
-	if *file != "" {
+	if file != "" {
 		// send to chNames
-		chNames <- *file
+		chNames <- file
 	}
-	if *dirtomonitor != "" {
+	if dirtomonitor != "" {
 		// walk a dir, send names to chNames
-		go getFilenames(*dirtomonitor, chNames) // closes chNames after adding all files
+		go getFilenames(dirtomonitor, chNames) // closes chNames after adding all files
 	} else {
 		close(chNames)
 	}
@@ -164,13 +218,6 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 			callmeToCancel()
 			log.Printf("cancelling the whole request")
 			return
-			// select {
-			// case _, ok := <-ch:
-			// 	if !ok {
-			// 		close(ch) // cancels other workers, authorization failed.
-
-			// 	}
-			// }
 		}
 	}
 	return

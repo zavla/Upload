@@ -1,3 +1,7 @@
+// For Windows you may run upload service as a Windows service.
+// To create a Windows service run:
+// New-Service -Name upload -BinaryPathName f:\Zavla_VB\GO\src\upload\cmd\uploadserver\uploadserver.exe  -Description "holds your backups" -StartupType Manual
+
 package main
 
 import (
@@ -102,7 +106,7 @@ func main() {
 
 }
 
-func getMapOfLogins(loginsstruct logins.Logins) map[string]logins.Login {
+func loginsToMap(loginsstruct logins.Logins) map[string]logins.Login {
 	ret := make(map[string]logins.Login)
 	for _, l := range loginsstruct.Logins {
 		ret[l.Login] = l
@@ -191,7 +195,7 @@ func runHTTPserver(config uploadserver.Config) {
 			return
 		}
 	}
-	loginsMap := getMapOfLogins(loginsstruct)
+	loginsMap := loginsToMap(loginsstruct)
 
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex

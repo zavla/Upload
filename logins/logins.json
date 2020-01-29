@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "logins": [
+   {
+    "id": "za1",
+    "email": "email@string",
+    "Passwordhash": "32dadfa06ad760fead2ccbecae2f3a3a",
+    "disabled": false
+   },
+   {
+    "id": "a1",
+    "email": "a@1",
+    "Passwordhash": "079b18347f8b15aea28105d2ac5edbdc",
+    "disabled": false
+   },
+   {
+    "id": "a2",
+    "email": "a@22",
+    "Passwordhash": "55d561374ef3211495744d581d184f10",
+    "disabled": false
+   }
+  ]
+ }

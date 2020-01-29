@@ -27,9 +27,10 @@ import (
 
 // ConnectConfig is used to specify URL and username.
 type ConnectConfig struct {
-	ToURL    string
-	Password string // one need to translate []byte to propper utf-8 string
-	Username string
+	ToURL        string
+	Password     string // one need to translate []byte to propper utf-8 string
+	PasswordHash string // one may already store a hash of password
+	Username     string
 }
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
@@ -180,7 +181,12 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			// don't forget to fill challengeAndCredentials.Method
 			challengeAndCredentials.Method = req.Method
 			// next lets construct a 'response' parameter for the HTTP Authorization cookie.
-			hashUsernameRealmPassword := httpDigestAuthentication.HashUsernameRealmPassword(where.Username, challengeAndCredentials.Realm, where.Password)
+			hashUsernameRealmPassword := ""
+			if where.Password != "" {
+				hashUsernameRealmPassword = httpDigestAuthentication.HashUsernameRealmPassword(where.Username, challengeAndCredentials.Realm, where.Password)
+			} else {
+				hashUsernameRealmPassword = where.PasswordHash
+			}
 			responseParam, err := httpDigestAuthentication.GenerateResponseAuthorizationParameter(hashUsernameRealmPassword, challengeAndCredentials)
 
 			challengeAndCredentials.Username = where.Username
