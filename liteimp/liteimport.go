@@ -43,7 +43,7 @@ type RequestForFileList struct {
 func Debugprint(resp interface{}) {
 	switch v := resp.(type) {
 	case http.Response:
-		// DEBUG ---------
+
 		fmt.Printf("%v\n", v.Status)
 		fmt.Printf("HEADERS\n")
 		for k, v := range v.Header {
@@ -51,7 +51,7 @@ func Debugprint(resp interface{}) {
 		}
 		b, _ := ioutil.ReadAll(v.Body)
 		fmt.Printf("\n%s\n", string(b))
-		// END DEBUG ----------
+
 	default:
 		fmt.Printf("%v", v)
 

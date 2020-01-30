@@ -1,6 +1,7 @@
 package logins
 
 import (
+	"strconv"
 	Error "upload/errstr"
 )
 
@@ -11,10 +12,14 @@ const (
 	errSaveLogin
 	errPackIntoBlockFailed
 	errFileOpen
+	// TODO(zavla): decide what to do with code REPRESENTATION
+	errReadPassword
+	errLoginsManagerCantAdd
+	errLoginsManagerCantSave
 )
 
 func init() {
-	Error.I18[errLoginNotFound] = "Login not found."
+	Error.I18[errLoginNotFound] = strconv.Itoa(errLoginNotFound) + "Login not found."
 	Error.I18[errTempFileCreationFailed] = "Temporary file creation failed."
 	Error.I18[errEncodingDecoding] = "Error while encoding or decoding JSON."
 	Error.I18[errSaveLogin] = "Login save error."

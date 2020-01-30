@@ -2,15 +2,15 @@
   "version": "1",
   "logins": [
    {
-    "id": "zahar",
-    "email": "z@b",
-    "Passwordhash": "dd51313621ec164ce398c6eb74348f37",
+    "id": "zahar2",
+    "email": "",
+    "Passwordhash": "bc583ed76dbd2f89a8c891acb61bfcf6",
     "disabled": false
    },
    {
-    "id": "test@beer-co.com",
-    "email": "test@b",
-    "Passwordhash": "81a92499afa74f014ad5f498a72f97f1",
+    "id": "zahar",
+    "email": "",
+    "Passwordhash": "b51b357d763e48e816a7ff02ce66123b",
     "disabled": false
    }
   ]

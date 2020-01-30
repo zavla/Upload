@@ -26,19 +26,26 @@ import (
 )
 
 func main() {
+	const constRealm = "upload" // this is for http digest authantication predefined realm,
+	// It is used to store passwords hashes in a file.
+
 	var ( // command line flags
 		bindToAddress string
 		storageroot   string
 		configdir     string
 		asService     bool
+		logname       string
 	)
 	const op = "uploadserver.main()"
-	logname := flag.String("log", "", "log file name, relative to storage root.")
-	flag.StringVar(&storageroot, "root", "", "storage root path for files (required)")
-	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified address:port")
-	flag.StringVar(&configdir, "config", "", "directory with logins.json file.")
-	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon)")
+	paramLogname := flag.String("log", "", "log `file` name.")
+	paramStorageroot := flag.String("root", "", "storage root `path` for files (required).")
+	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified `address:port`.")
+	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
+	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon).")
+	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
+
 	flag.Parse()
+	configdir, _ = filepath.Abs(*paramConfigdir)
 
 	// setup log destination
 	var logwriter io.Writer // io.MultiWriter
@@ -48,13 +55,14 @@ func main() {
 	log.SetPrefix("[LogMsg] ")
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
-	if *logname == "" {
+	if *paramLogname == "" {
 		logwriter = os.Stdout
 	} else {
+		logname, _ = filepath.Abs(*paramLogname)
 		var err error
-		logfile, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
+		logfile, err = os.OpenFile(logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
 		if err != nil { // do not start without log file
-			log.Fatal(Error.E(op, err, errCantWriteLogFile, 0, *logname))
+			log.Fatal(Error.E(op, err, errCantWriteLogFile, 0, logname))
 		}
 		logwriter = io.MultiWriter(logfile, os.Stdout)
 
@@ -63,17 +71,44 @@ func main() {
 	defer logfile.Close()
 
 	// here we have a working log file
+	if configdir == "" {
+		flag.PrintDefaults()
+		log.Fatalf("-configdir is required.")
+		return
+	}
+
+	if *adduser != "" {
+		loginsSt := logins.Logins{}
+
+		loginsfilename := filepath.Join(configdir, "logins.json")
+		err := loginsSt.OpenDB(loginsfilename)
+		if err != nil {
+			log.Printf("Can't open logins.json file : %s", err)
+			return
+		}
+		loginobj := logins.Login{Login: *adduser}
+
+		err = logins.AskAndSavePasswordForHTTPDigest(&loginsSt, loginobj, constRealm)
+		if err != nil {
+			log.Printf("Can't write logins.json file : %s", err)
+			return
+		}
+		log.Printf("Password for login '%s' saved to %s", *adduser, loginsfilename)
+
+		return
+	}
 
 	// check required params
-	if storageroot == "" {
+	if *paramStorageroot == "" {
 		flag.PrintDefaults()
 		return
 	}
-	storageroot, err := filepath.Abs(storageroot)
+	storageroot, err := filepath.Abs(*paramStorageroot)
 	if err != nil {
 		log.Printf("Can't get absolute path of storageroot: %s", err)
 		return
 	}
+
 	froot, err := openStoragerootRw(storageroot)
 	if err != nil {
 		log.Printf("Can't start server, storageroot rw error: %s", err)

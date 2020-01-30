@@ -22,3 +22,6 @@ cmd/uploader/uploader
 .idea/vcs.xml
 *.exe~
 logins/logins.file
+logins.json
+cmd/uploadserver/logins.json
+cmd/uploadserver/logins.json.backup

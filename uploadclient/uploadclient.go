@@ -27,8 +27,9 @@ import (
 
 // ConnectConfig is used to specify URL and username.
 type ConnectConfig struct {
-	ToURL        string
-	Password     string // one need to translate []byte to propper utf-8 string
+	ToURL    string
+	Password string // TODO(zavla): check the cyrillic passwords
+	// OR you may specify a hash
 	PasswordHash string // one may already store a hash of password
 	Username     string
 }
@@ -261,7 +262,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			n, _ := resp.Body.Read(b)
 			b = b[:n]
 
-			log.Printf("DEBUG: service responded with status %s, the response body was %s", resp.Status, string(b))
+			log.Printf("Debug msg: Upload service responded with HTTP status %s, the response body was %s", resp.Status, string(b))
 
 		}
 		// here goes other errors and http.statuses:

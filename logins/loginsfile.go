@@ -2,6 +2,7 @@ package logins
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -9,12 +10,15 @@ import (
 	"sync"
 	Error "upload/errstr" // we depend on new standard functions: Unwrap, Is, As
 	"upload/httpDigestAuthentication"
+
+	"golang.org/x/crypto/ssh/terminal"
 )
 
-type manager interface {
+type Manager interface {
 	Save() error
 	Add(login string, email string, password string) (Login, error)
 	Find(login string, lockX bool) (*Login, int, error)
+	OpenDB(path string) error
 }
 
 const ver1 = "1"
@@ -115,6 +119,38 @@ func (ls *Logins) sortPointersToLogins(field string) {
 			return false
 		})
 	}
+
+}
+
+func (ls *Logins) OpenDB(path string) error {
+	newls, err := ReadLoginsJSON(path)
+	if err != nil {
+		return err
+	}
+	*ls = newls
+	return nil
+}
+
+func AskAndSavePasswordForHTTPDigest(loginsmanager Manager, loginobj Login, realm string) error {
+	const op = "logins.AskAndSavePasswordForHTTPDigest()"
+	fmt.Printf("\nEnter user '%s' password: ", loginobj.Login)
+	password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+
+	fmt.Println("")
+	if err != nil {
+		return Error.E(op, err, errReadPassword, 0, "")
+	}
+	hashUsernameRealmPassword := httpDigestAuthentication.HashUsernameRealmPassword(loginobj.Login, realm, string(password))
+	_, err = loginsmanager.Add(loginobj.Login, "", hashUsernameRealmPassword)
+	if err != nil {
+		return Error.E(op, err, errLoginsManagerCantAdd, 0, "")
+	}
+	err = loginsmanager.Save()
+	if err != nil {
+		return Error.E(op, err, errLoginsManagerCantSave, 0, "")
+
+	}
+	return nil
 
 }
 

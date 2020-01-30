@@ -6,13 +6,11 @@ import (
 	"time"
 	Error "upload/errstr"
 	"upload/fsdriver"
-	"upload/httpDigestAuthentication"
 	"upload/logins"
 
 	"upload/uploadclient"
 
 	"flag"
-	"fmt"
 
 	"context"
 	"log"
@@ -23,17 +21,18 @@ import (
 
 	"sync"
 
-	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/publicsuffix"
 )
 
 var where uploadclient.ConnectConfig
 
+const constRealm = "upload" // this is for http digest authantication predefined realm
+
 func main() {
 	const op = "main()"
-	const constRealm = "upload" // this is for http digest authantication predefined realm, used to store passwords in a file.
+	// It is used to store passwords in a file.
 
-	logname := flag.String("log", "", "a log `file`.")
+	paramLogname := flag.String("log", "", "a log `file`.")
 	paramFile := flag.String("file", "", "a `file` you want to upload.")
 	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
 	username := flag.String("username", "", "a user `name` of an Upload service.")
@@ -52,17 +51,17 @@ func main() {
 	where.ToURL = *uploadServerURL
 
 	if *paramFile == "" && *paramDirtomonitor == "" {
-		log.Printf("--file or --dir must be specified.")
+		log.Printf("-file or -dir must be specified.")
 		os.Exit(1)
 		return
 	}
 	if *savepassword && *paramPasswordfile == "" {
-		log.Println("--passwordfile is not specified.")
+		log.Println("-passwordfile is not specified.")
 		os.Exit(1)
 		return
 	}
 	// clean paths
-	var file, dirtomonitor, passwordfile string = "", "", ""
+	var logfile, file, dirtomonitor, passwordfile string = "", "", "", ""
 	if *paramFile != "" {
 		file, _ = filepath.Abs(*paramFile)
 	}
@@ -72,59 +71,11 @@ func main() {
 	if *paramPasswordfile != "" {
 		passwordfile, _ = filepath.Abs(*paramPasswordfile)
 	}
-
-	// passwords only if there is a specified user
-	if *username != "" {
-		where.Username = *username
-
-		loginsSt, err := logins.ReadLoginsJSON(passwordfile)
-		if err != nil {
-			log.Printf("%s", err)
-			return
-		}
-
-		if *savepassword {
-			fmt.Printf("\nEnter user '%s' password: ", *username)
-
-			password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
-			// DEBUG!!!
-			// var b []byte
-			// password := append(b, "pass"...)
-
-			println("")
-			if err != nil {
-				fmt.Printf("Reading password error: %s", err)
-				return
-			}
-
-			hashUsernameRealmPassword := httpDigestAuthentication.HashUsernameRealmPassword(where.Username, constRealm, string(password))
-			_, err = loginsSt.Add(*username, "", hashUsernameRealmPassword)
-			if err != nil {
-				fmt.Printf("Adding login to a login list failed: %s\n", err)
-				return
-			}
-			loginsSt.Save()
-			if err != nil {
-				fmt.Printf("Saving password file failed: %s\n", err)
-				return
-			}
-			// EXIT after save
-			fmt.Printf("Password saved.\n")
-			return
-		}
-		loginFromFile, _, err := loginsSt.Find(where.Username, false)
-		if err != nil {
-			fmt.Printf("Login '%s' is not found in logins file %s", where.Username, passwordfile)
-			return
-		}
-		where.PasswordHash = loginFromFile.Passwordhash
-
-		if where.ToURL[len(where.ToURL)-1] != '/' {
-			where.ToURL += "/"
-		}
-		where.ToURL += *username
+	if *paramLogname != "" {
+		logfile, _ = filepath.Abs(*paramLogname)
 	}
-
+	//SET LOG
+	// Stack print on panic
 	defer func() {
 		// on panic we will write to log file
 		if err := recover(); err != nil {
@@ -137,23 +88,52 @@ func main() {
 			log.Printf("%d bytes of stack trace.\n%s", n, string(b))
 		}
 	}()
-	// setup log destination
+	// Setup log destination: stdout or user specified file.
 	var flog *os.File
-	if *logname == "" {
+	if logfile == "" {
 		flog = os.Stdout
 	} else {
 		var err error
-		flog, err = os.OpenFile(*logname, os.O_APPEND|os.O_CREATE, os.ModeAppend)
+		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE, os.ModeAppend)
 		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		os.Exit(1)
 		return
 	}
-
 	// from hereafter use log for messages
 	log.SetOutput(flog)
 	defer func() { _ = flog.Close() }()
+	// LOG SETTED
 
-	// channel with filenames
+	// passwords only if there is a specified user
+	if *username != "" {
+		where.Username = *username
+
+		loginsSt := logins.Logins{}
+
+		err := loginsSt.OpenDB(passwordfile)
+		if err != nil {
+			log.Printf("%s", err)
+			return
+		}
+
+		if *savepassword {
+			savepasswordExit(&loginsSt, *username)
+			return
+		}
+		loginFromFile, _, err := loginsSt.Find(where.Username, false)
+		if err != nil {
+			log.Printf("Login '%s' is not found in logins file %s", where.Username, passwordfile)
+			return
+		}
+		where.PasswordHash = loginFromFile.Passwordhash
+
+		if where.ToURL[len(where.ToURL)-1] != '/' {
+			where.ToURL += "/"
+		}
+		where.ToURL += *username
+	} /* else there is no password */
+
+	// chNames is a channel with filenames to upload
 	chNames := make(chan string, 2)
 
 	if file != "" {
@@ -167,15 +147,15 @@ func main() {
 		close(chNames)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
-	// TODO(zavla): store partial files aside? move them somewhere?
-	// TODO(zavla): run uploadserver as a Windows service.
 	// TODO(zavla): autotls?
 	// TODO(zavla): CSRF, do not mix POST request with URL parametres!
 	// TODO(zavla): in server calculate speed of upload.
+
 	mainCtx, callmeToCancel := context.WithCancel(context.Background())
 
 	runWorkers(mainCtx, callmeToCancel, chNames)
-	// here we are when runWorkers has exited
+	// Any worker may cancel other workers.
+	// Here we are when all Workers have finished.
 
 	log.Println("Normal exit.")
 }
@@ -252,8 +232,8 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 		return nil
 	}
 
-	log.Printf("%s", err)
-	return err // every error is returned upward, including authorization error.
+	log.Printf("%s: %s", err, fullfilename)
+	return err // every error is returned to caller, including authorization error.
 }
 
 // getFilenames collects files names in a directory and sends them to channel chNames.
@@ -268,8 +248,7 @@ func getFilenames(dir string, chNames chan<- string) {
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
 		isarchiveset, _ := getArchiveAttribute(path)
-		if isarchiveset ||
-			true { //DEBUG!!!
+		if isarchiveset {
 			chNames <- path
 		}
 		return nil // next file please
@@ -280,4 +259,17 @@ func getFilenames(dir string, chNames chan<- string) {
 	}
 
 	return
+}
+
+func savepasswordExit(loginsSt logins.Manager, username string) {
+	loginobj := logins.Login{Login: username}
+	err := logins.AskAndSavePasswordForHTTPDigest(loginsSt, loginobj, constRealm)
+	if err != nil {
+		log.Printf("Saving password file failed: %s\n", err)
+		return
+	}
+	// EXIT after save
+	log.Printf("Password saved.\n")
+	return
+
 }
