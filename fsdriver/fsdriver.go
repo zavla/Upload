@@ -192,9 +192,9 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 			// newbytes[from:to] into actual file
 			from := i * lenhunk
 			to := from + curlen
-			// TODO(zavla): CRC32 newbytes[from:to] !!!
-			// OR sha1 newbytes and store a file with name==sha1 of a block
-			// add step1 into journal = "write begin"
+			// TODO(zavla): may be CRC32 or sha1 newbytes[from:to]
+
+			// add step1 into journal, "write begin"
 			destinationrecord.Count = int64(curlen)
 			err := addRecordToJournalFile(wp, startedwriting, ver, *destinationrecord)
 			if err != nil {
@@ -341,21 +341,55 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 				errlog
 		}
 
-		// Here errlog is a logical error in journal file.
-		// log(journal) file needs repair.
-		// A simple case is when actual file size == fromLog.startoffset.
-		// It is when an upload did not complete.
+		// Here errlog is a logical error in journal file against actual file state.
+		// log(journal) file needs repair:
+		//		a case when a journal file has some gabage at the end;
+		// Actual file needs repare:
+		//		a case when actual file holds bytes and journal doesn't hold 'write ended' record.
 		if fromLog.FileSize != 0 && // log at least has filesize
-			fromLog.Startoffset == wastat.Size() && // offset is equal to actual file size
-			fromLog.FileSize > fromLog.Startoffset { // maybe half of a file have been downloaded
+			fromLog.FileSize > fromLog.Startoffset && // actual file is not complete
+			fromLog.Startoffset <= wastat.Size() && // journal Startoffset is inside expected size
+			wastat.Size()-fromLog.Startoffset < constwriteblocklen { // the difference between journal and actual file is not big
+
+			// expected offset from journal file is equal to actual file size
+			// This is a case when a journal file has some bad or incomplete records at the end.
 
 			// May be that uploadserver was shutted down in the process of writing to the journal file.
-			// try to repair journal file to lcontinue upload
-			if err := wp.Truncate(journaloffset); err == nil {
-				// Here the journal is repaired.
-				// One may continue to upload the actual file.
-				return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+			// try to repair journal file to continue upload
+			wp.Close() // wp was opened for read
+			wp, err := os.OpenFile(filepath.Join(storagepath, namepart), os.O_RDWR, 0)
+			if err == nil {
+				defer wp.Close()
+				if err := wp.Truncate(journaloffset); err == nil {
+					if err = wp.Close(); err == nil {
+
+						// Here the journal is repaired.
+						// One may continue to upload the actual file.
+						if fromLog.Startoffset == wastat.Size() {
+							// journal repaired. Actual file os OK.
+							return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+
+						}
+
+						if fromLog.Startoffset < wastat.Size() { // a case when journal file doesn't have 'write ended' record.
+							// the last block of actual file may not be trusted ??
+							wa, err := os.OpenFile(filepath.Join(storagepath, name), os.O_RDWR, 0)
+							if err == nil { // if we opened actual file (err==nil)
+								defer wa.Close() // second Close on a file is allowed
+								if err = wa.Truncate(fromLog.Startoffset); err == nil {
+									err = wa.Close()
+									if err == nil {
+										// we truncated actual file.
+										// we recovered from uncertainity.
+										return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+									}
+								}
+							}
+						}
+					}
+				}
 			}
+
 		}
 
 		// here journal file is considdered to be in corrupted state

@@ -53,7 +53,17 @@ type Config struct {
 // ConfigThisService for config
 var ConfigThisService Config
 
+// constrecieveblocklen is a block (number of bytes) to recieve or write.
+// If we've recieved les then constrecieveblocklen bytes they are considered to be a small packet that doesn't go directly to disk.
 const constrecieveblocklen = (1 << 16) - 1
+
+// The size of buffered channel that holds recieved slices of bytes.
+// Its a count of constrecieveblocklen blocks.
+const constChRecieverBufferLen = 10
+
+// As we read from wire in a loop, constCountBlocksToReadFromWire is a number of constrecieveblocklen blocks to read at one loop step.
+const constCountBlocksToReadFromWire = 5
+
 const constmaxpath = 32767 - 6000 // reserve space for the service storage root
 const constmaxfilename = 260
 
@@ -73,7 +83,7 @@ func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 	// timeout is set via http.Server{Timeout...}
 	defer close(chReciever)
 
-	blocklen := 3 * constrecieveblocklen
+	blocklen := constCountBlocksToReadFromWire * constrecieveblocklen
 	i := 0
 	for { // endless recieve loop
 
@@ -417,7 +427,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 	// Creates reciever channel to hold read bytes in this connection.
 	// Bytes from chReciever will be written to file.
-	chReciever := make(chan []byte, 2)
+	chReciever := make(chan []byte, constChRecieverBufferLen)
 
 	// Channel chWriteResult is used to send back result from WriteChanneltoDisk goroutine.
 	chWriteResult := make(chan writeresult)

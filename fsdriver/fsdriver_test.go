@@ -532,3 +532,33 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	}
 	return ret, nil
 }
+
+func TestMayUpload_srvr(t *testing.T) {
+	type args struct {
+		storagepath string
+		name        string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    FileState
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+		{name: "srvr_1st_pair_member",
+			args: args{storagepath: "f:/Zavla_VB/GO/src/upload/cmd/uploadserver/testdata/storageroot/zahar/",
+				name: "srvinfo_192_168_8_4_1641_2020-01.rar"},
+			want:    FileState{},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := MayUpload(tt.args.storagepath, tt.args.name)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("MayUpload() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
+	}
+}

@@ -117,7 +117,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// current record do not corresond to expected file size
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
-					Error.E(op, err, errPartialFileCorrupted, 0, "")
+					Error.E(op, err, errPartialFileCorrupted, 0, "Startoffset in journal size already exceeded expected file size.")
 			case currrecord.Startoffset == prevrecord.Startoffset &&
 				currrecord.Action == successwriting &&
 				prevrecord.Action == startedwriting:
@@ -139,7 +139,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// we reach end of file. EOF is not an error in data. We have read the last record.
 				lasterr = nil
 				if maybeErr {
-					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "")
+					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "Journal file doesn't have a 'write ended' record.")
 				}
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,

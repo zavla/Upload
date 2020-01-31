@@ -181,8 +181,8 @@ func runWorkers(oneForAllCtx context.Context, callmeToCancel context.CancelFunc,
 
 }
 
-// worker takes from channel and sends files.
-// This peticular workers ARE allowed to cancel the whole context oneForAllCtx in case of authorization error.
+// worker takes files names from channel and sends files.
+// These peticular workers ARE allowed to cancel the whole context oneForAllCtx in case of authorization error.
 func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg *sync.WaitGroup, ch chan string) {
 	defer wg.Done()
 
@@ -203,6 +203,9 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 	return
 }
 
+// prepareAndSendAFile works in a worker goroutine.
+// It compute SHA1 of a file and calls uploadclient.SendAFile().
+// At the end it calls markFileAsUploaded().
 func prepareAndSendAFile(ctx context.Context, filename string, config *uploadclient.ConnectConfig) error {
 	const op = "uploader.prepareAndSendAFile()"
 	// uses cookies to hold sessionId
@@ -218,7 +221,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		return err
 	}
-
+	log.Printf("%s  ->", fullfilename)
 	err = uploadclient.SendAFile(ctx, config, fullfilename, jar, bsha1)
 
 	if err == nil {

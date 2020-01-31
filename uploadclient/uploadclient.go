@@ -97,14 +97,15 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		Jar:           jar,             // http.Request uses jar to keep cookies (to hold sessionID)
 	}
 
-	waitBeforeRetry := time.Duration(30) * time.Second
+	waitBeforeRetry := time.Duration(10) * time.Second
+	const constNumberOfRetries = 20
 	//waitForFileToBecomeAvailable := time.Duration(24) * time.Hour
 
 	ret := Error.E(op, err, errNumberOfRetriesExceeded, 0, "")
 	authorizationsent := false
 
 	// cycle for some errors that can be tolerated
-	for i := 0; i < 3; i++ {
+	for i := 0; i < constNumberOfRetries; i++ {
 
 		// first we check to see a cancel signal
 		select {
