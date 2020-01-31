@@ -500,7 +500,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			if !bytes.Equal(factsha1, wantsha1) {
 				// sha1 differs!!!
 				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.E(op, nil, errSha1CheckFailed, Error.ErrKindInfoForUsers, "")})
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "A file is complete but SHA1 is incorrect. It's an error.")})
 				return
 			}
 		}

@@ -251,7 +251,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			query.Set("count", strconv.FormatInt(bytesleft, 10))
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
-			log.Printf("continue from startoffset %d", newoffset)
+			req.ContentLength = bytesleft
+			log.Printf("%s: continue from startoffset %d", op, newoffset)
 			// no delay, do expected request again
 			continue // cycles to next cli.Do()
 

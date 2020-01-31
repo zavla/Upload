@@ -79,8 +79,10 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 	// Here there is a header.
 	// Check the header for correctness.
 	if startstruct.VersionBytes == structversion2 && startstruct.VersionBytesEnd == structversion2 {
+
 		correctrecordoffset += headersize
 		retState.FileSize = startstruct.TotalExpectedFileLength
+		retState.Sha1 = startstruct.Sha1[:]
 
 		currrecord := journalrecordver2{} // current log record
 

@@ -243,8 +243,15 @@ func getFilenames(dir string, chNames chan<- string) {
 	const op = "uploader.getFilenamesToupload()"
 	defer close(chNames)
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return filepath.SkipDir
+		}
 		if info.IsDir() {
-			return nil // next file please
+			if dir == path { //first file
+				return nil
+			}
+			println("skipping ", path)
+			return filepath.SkipDir // no reqursion
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
 		isarchiveset, _ := getArchiveAttribute(path)
