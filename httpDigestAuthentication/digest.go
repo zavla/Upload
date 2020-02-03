@@ -3,13 +3,13 @@ package httpDigestAuthentication
 
 // to debug run: ./uploader.exe --file ./testbackups/sendfile.rar
 import (
-	Error "upload/errstr"
 	"bytes"
 	"crypto/md5"
 	"fmt"
 	"io"
 	"math/rand"
 	"strings"
+	Error "upload/errstr"
 )
 
 // ChallengeToClient is used to hold parameters that will be sent to client in WWW-Authenticate header.
@@ -36,6 +36,7 @@ type CredentialsFromClient struct {
 
 // GenerateAuthorization creates a http digest Authorization header at client side.
 func GenerateAuthorization(c *CredentialsFromClient) string {
+	//Digest username="zahar",realm="upload",nonce="72e86b2fb36b49f5521600618fee56bb",uri="/upload/zahar",cnonce="6bedbcd39a03430202a75c2e6602725b",nc=00000001,algorithm=MD5,response="cc03ba528bd9b48981689a7941fb9c91",qop="auth"
 	b := &bytes.Buffer{}
 	b.WriteString("Digest ")
 
@@ -49,16 +50,18 @@ func GenerateAuthorization(c *CredentialsFromClient) string {
 		b.WriteString(", nonce=")
 		b.WriteString(c.Nonce)
 	}
-
-	b.WriteString(", qop=")
-	b.WriteString(c.Qop)
+	if c.URI != "" {
+		b.WriteString(", uri=")
+		b.WriteString(c.URI)
+	}
 
 	b.WriteString(", cnonce=")
 	b.WriteString(c.Cnonce)
 
-	b.WriteString(", response=")
-	b.WriteString(c.Response)
-
+	if c.NonceCount != "" {
+		b.WriteString(", nc=")
+		b.WriteString(c.NonceCount)
+	}
 	if c.Opaque != "" {
 		b.WriteString(", opaque=")
 		b.WriteString(c.Opaque)
@@ -71,6 +74,11 @@ func GenerateAuthorization(c *CredentialsFromClient) string {
 		b.WriteString(", algorithm=")
 		b.WriteString(c.Algorithm)
 	}
+	b.WriteString(", response=")
+	b.WriteString(c.Response)
+
+	b.WriteString(", qop=")
+	b.WriteString(c.Qop)
 
 	return b.String()
 }
@@ -133,7 +141,7 @@ func CheckCredentialsFromClient(c *ChallengeToClient, creds *CredentialsFromClie
 		return false, err
 	}
 	if responsewant != creds.Response {
-		return false, Error.E(op, nil, errBadDigestResponse, 0, "")
+		return false, nil // no access, just no error
 	}
 
 	return true, nil

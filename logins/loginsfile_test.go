@@ -123,3 +123,25 @@ func TestGrowCapacityInvalidatePointers(t *testing.T) {
 	}
 
 }
+
+func TestAskAndSavePasswordForHTTPDigest(t *testing.T) {
+	type args struct {
+		loginsmanager Manager
+		loginobj      Login
+		realm         string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := AskAndSavePasswordForHTTPDigest(tt.args.loginsmanager, tt.args.loginobj, tt.args.realm); (err != nil) != tt.wantErr {
+				t.Errorf("AskAndSavePasswordForHTTPDigest() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

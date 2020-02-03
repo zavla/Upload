@@ -76,6 +76,12 @@ func TestGenerateAuthorizationResponseParameter(t *testing.T) {
 				 method="GET"`
 	credentials, _ := ParseStringIntoStruct(standardAuthorizationHeader)
 
+	curlResponded := `Digest username="zahar",realm="upload",nonce="72e86b2fb36b49f5521600618fee56bb",uri="/upload/zahar?&filename=sendfile.rar",cnonce="2383d3df41b7ea05a4bfda8498c393f0",nc=00000001,algorithm=MD5,response="8a7e6bdbf21be2d853cabd505ebedc3b",qop="auth"`
+	curlCredentials, _ := ParseStringIntoStruct(curlResponded)
+	curlCredentials.Method = "POST"
+	curlPass := make([]byte, 0)
+	curlPass = append(curlPass, "pass"...)
+
 	tests := []struct {
 		name    string
 		args    args
@@ -86,6 +92,14 @@ func TestGenerateAuthorizationResponseParameter(t *testing.T) {
 			args: args{
 				hashUsernameRealmPassword: HashUsernameRealmPassword("Mufasa", "testrealm@host.com", "Circle Of Life"),
 				cr:                        *credentials,
+			},
+			want:    "6629fae49393a05397450978507c4ef1",
+			wantErr: false,
+		},
+		{name: "curl response",
+			args: args{
+				hashUsernameRealmPassword: HashUsernameRealmPassword("zahar", "upload", string(curlPass)),
+				cr:                        *curlCredentials,
 			},
 			want:    "6629fae49393a05397450978507c4ef1",
 			wantErr: false,

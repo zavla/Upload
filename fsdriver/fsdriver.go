@@ -341,7 +341,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 				errlog
 		}
 
-		// Here errlog is a logical error in journal file against actual file state.
+		// Here errlog is a logical error in journal file against actual uploading file state.
 		// log(journal) file needs repair:
 		//		a case when a journal file has some gabage at the end;
 		// Actual file needs repare:
@@ -349,7 +349,7 @@ func MayUpload(storagepath string, name string) (FileState, error) {
 		if fromLog.FileSize != 0 && // log at least has filesize
 			fromLog.FileSize > fromLog.Startoffset && // actual file is not complete
 			fromLog.Startoffset <= wastat.Size() && // journal Startoffset is inside expected size
-			wastat.Size()-fromLog.Startoffset < constwriteblocklen { // the difference between journal and actual file is not big
+			wastat.Size()-fromLog.Startoffset <= constwriteblocklen { // the difference between journal and actual file is not big
 
 			// expected offset from journal file is equal to actual file size
 			// This is a case when a journal file has some bad or incomplete records at the end.

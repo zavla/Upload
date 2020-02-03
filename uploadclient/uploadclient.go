@@ -182,6 +182,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			challengeAndCredentials.Cnonce = uuid.New().String()
 			// don't forget to fill challengeAndCredentials.Method
 			challengeAndCredentials.Method = req.Method
+			challengeAndCredentials.URI = req.URL.RawQuery
+			challengeAndCredentials.NonceCount = "00000001"
+
 			// next lets construct a 'response' parameter for the HTTP Authorization cookie.
 			hashUsernameRealmPassword := ""
 			if where.Password != "" {

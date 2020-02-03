@@ -533,7 +533,7 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 	return ret, nil
 }
 
-func TestMayUpload_srvr(t *testing.T) {
+func noTestMayUpload_srvr(t *testing.T) {
 	type args struct {
 		storagepath string
 		name        string

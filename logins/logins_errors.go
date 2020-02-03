@@ -25,4 +25,7 @@ func init() {
 	Error.I18[errSaveLogin] = "Login save error."
 	Error.I18[errPackIntoBlockFailed] = "Pack login into block failed."
 	Error.I18[errFileOpen] = "File open error."
+	Error.I18[errReadPassword] = "Error while reading password."
+	Error.I18[errLoginsManagerCantAdd] = "Can't add a login."
+	Error.I18[errLoginsManagerCantSave] = "Can't save a login."
 }

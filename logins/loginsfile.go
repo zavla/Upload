@@ -63,8 +63,8 @@ func (ls *Logins) updateSortedlogins() {
 		ls.sortedLogins[i] = &ls.Logins[i]
 	}
 }
-func (ls *Logins) Add(login string, email string, password string) (Login, error) {
-	newhash := httpDigestAuthentication.HashUsernameRealmPassword(login, "upload", password)
+func (ls *Logins) Add(login string, email string, newhash string) (Login, error) {
+	//newhash := httpDigestAuthentication.HashUsernameRealmPassword(login, "upload", password)
 	l, _, err := ls.Find(login, true) // locks mu
 	if os.IsNotExist(err) {
 		// l is on stack
@@ -135,6 +135,9 @@ func AskAndSavePasswordForHTTPDigest(loginsmanager Manager, loginobj Login, real
 	const op = "logins.AskAndSavePasswordForHTTPDigest()"
 	fmt.Printf("\nEnter user '%s' password: ", loginobj.Login)
 	password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	//DEBUG!!!
+	// password = []byte("pass")
+	// err = nil
 
 	fmt.Println("")
 	if err != nil {
