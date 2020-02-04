@@ -221,7 +221,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		return err
 	}
-	log.Printf("%s  ->", fullfilename)
+
 	err = uploadclient.SendAFile(ctx, config, fullfilename, jar, bsha1)
 
 	if err == nil {

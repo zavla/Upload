@@ -19,6 +19,7 @@ const (
 	// ErrAuthorizationFailed used at uploader
 	ErrAuthorizationFailed
 	errCanceled
+	errWhileSendingARequestToServer
 )
 
 func init() {
@@ -37,4 +38,5 @@ func init() {
 	Error.I18[errBadHTTPAuthenticationChellenge] = "Заголовок WWW-Authentication неправильный."
 	Error.I18[ErrAuthorizationFailed] = "Authorization failed."
 	Error.I18[errCanceled] = "Sending canceled."
+	Error.I18[errWhileSendingARequestToServer] = "Some error while sending a request to server."
 }

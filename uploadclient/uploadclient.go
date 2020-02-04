@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -75,6 +76,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	req.ContentLength = stat.Size()          // file size
 	req.Header.Add("Expect", "100-continue") // client will not send body at once, it will wait for server response status "100-continue"
 	req.Header.Add("sha1", fmt.Sprintf("%x", bsha1))
+	req.Header.Add("Accept-Encoding", "deflate, compress, gzip;q=0, identity") //
 
 	query := req.URL.Query()
 	query.Add("filename", name) // url parameter &filename
@@ -82,6 +84,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 	// I use transport to define timeouts: idle and expect timeout
 	tr := &http.Transport{
+
 		Proxy:                 http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: 20 * time.Second, // wait for headers for how long
 		TLSHandshakeTimeout:   20 * time.Second, // time to negotiate for TLS
@@ -104,6 +107,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	ret := Error.E(op, err, errNumberOfRetriesExceeded, 0, "")
 	authorizationsent := false
 
+	log.Printf("%s  ->\n", fullfilename)
 	// cycle for some errors that can be tolerated
 	for i := 0; i < constNumberOfRetries; i++ {
 
@@ -125,7 +129,13 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 		if err != nil || resp == nil {
 			// response may be nil when transport fails with timeout (it may timeout while i am debugging the upload server)
-			ret = Error.E(op, err, errCantConnectToServer, 0, "")
+			if urlErr, ok := err.(*url.Error); ok && urlErr.Timeout() {
+				// err by timeout
+				ret = Error.E(op, err, errCantConnectToServer, 0, "timeout error.")
+
+			} else {
+				ret = Error.E(op, err, errWhileSendingARequestToServer, 0, "")
+			}
 			log.Printf("%s", ret)
 
 			time.Sleep(waitBeforeRetry) // waits: can't connect

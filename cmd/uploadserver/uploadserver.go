@@ -1,6 +1,6 @@
 // For Windows you may run upload service as a Windows service.
 // To create a Windows service run:
-// New-Service -Name upload -BinaryPathName f:\Zavla_VB\GO\src\upload\cmd\uploadserver\uploadserver.exe  -Description "holds your backups" -StartupType Manual
+// New-Service -Name upload -BinaryPathName f:\Zavla_VB\GO\src\upload\cmd\uploadserver\uploadserver.exe  -Description "holds your backups" -StartupType Manual -asService
 
 package main
 
@@ -129,6 +129,7 @@ func main() {
 	uploadserver.ConfigThisService.Configdir = configdir
 	uploadserver.ConfigThisService.Logwriter = logwriter
 
+	log.Printf("uploadserver service started and listening on %s,  writes to storage root %s\n", bindToAddress, storageroot)
 	if asService {
 		// runsAsService is unique for windows and linux.
 		// It responds to Windows Service Control Manager on windows.
@@ -257,11 +258,16 @@ func runHTTPserver(config uploadserver.Config) {
 
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{
-		Addr:              config.BindAddress,
-		Handler:           router,
-		ReadTimeout:       120 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		ReadHeaderTimeout: 60 * time.Second,
+		Addr:    config.BindAddress,
+		Handler: router,
+
+		// 8 hours for big uploads, clients should retry after that.
+		// Anonymous uploads have no means to retry uploads.
+		ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
+		// TODO(zavla): for WriteTimeout when service will serve files back may be we will need some more time.
+		WriteTimeout:      60 * time.Second,  // total time to write the response
+		ReadHeaderTimeout: 30 * time.Second,  // we need relatively fast response on inaccessable client
+		IdleTimeout:       120 * time.Second, // time for client to post a second request.
 		//MaxHeaderBytes: 1000,
 	}
 	err = s.ListenAndServe()

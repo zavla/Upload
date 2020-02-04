@@ -302,7 +302,7 @@ type logLine struct {
 func logline(c *gin.Context, msg string) (ret logLine) {
 	ret = logLine{gin.LogFormatterParams{
 		Request: c.Request,
-		IsTerm:  false,
+		//IsTerm:  false,
 	},
 	}
 	ret.TimeStamp = time.Now()
@@ -362,7 +362,7 @@ func ServeAnUpload(c *gin.Context) {
 		// Next we set store ID into cookie.
 		// httpOnly==true for the cookie to be unavailable for javascript api.
 		// path=="/upload" means "/upload" should be in URL path for this cookie to be sent to client.
-		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "/upload", "", false, true)
+		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "/upload", "", http.SameSiteStrictMode, false, true)
 
 		// c holds in its Context a session ID in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
@@ -388,7 +388,7 @@ func ServeAnUpload(c *gin.Context) {
 		// stale state, we clear clientsstates map for this session
 		delete(clientsstates, strSessionID) // delete is no-op when key not found
 		// we set cookie in response header
-		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true)
+		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true)
 		// we set cookie in current context.
 		c.Set(liteimp.KeysessionID, "")
 		// a user remains Authanticated, only a session ID cookie is cleared.
@@ -458,7 +458,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		helpmessage := "" + string(jsonbytes)
 		//
-		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
+		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, err, errClientRequestShouldBindToJSON, 0, helpmessage)})
 		return
 	}
@@ -510,7 +510,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			if !bytes.Equal(factsha1, wantsha1) {
 				// sha1 differs!!!
 				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "A file is complete but SHA1 is incorrect. It's an error.")})
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "A file is complete but SHA1 is incorrect. It's an error.").Error()})
 				return
 			}
 		}
@@ -528,7 +528,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	}
 
 	// Client made wrong request
-	c.SetCookie(liteimp.KeysessionID, "", 300, "", "", false, true) // clear cookie
+	c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true) // clear cookie
 	delete(clientsstates, strSessionID)
 
 	jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
@@ -547,7 +547,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 	if err != nil {
 		// no parameter &filename
 		c.JSON(http.StatusBadRequest,
-			gin.H{"error": Error.ToUser(op, errWrongURLParameters, `Example: curl.exe -X POST http://127.0.0.1:64000/upload?&filename="sendfile.rar" -T .\sendfile.rar`)})
+			gin.H{"error": Error.ToUser(op, errWrongURLParameters, `Example: curl.exe -X POST http://127.0.0.1:64000/upload?&filename="sendfile.rar" -T .\sendfile.rar`).Error()})
 		return // http request ends, wrong URL.
 	}
 	if req.Filename == "" {
@@ -699,7 +699,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 				// sha1 differs!!!
 				// TODO(zavla): needs more sofisticated algorithm to repare file.
 				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", sha1fromclient, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "")})
+				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "").Error()})
 				return
 			}
 		}
