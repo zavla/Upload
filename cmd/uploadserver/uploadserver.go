@@ -52,8 +52,8 @@ func main() {
 	var logfile *os.File
 
 	// uses log because log.out uses mutex
-	log.SetPrefix("[LogMsg] ")
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.SetPrefix("[UPL] ")
+	log.SetFlags(log.LstdFlags | log.LUTC)
 
 	if *paramLogname == "" {
 		logwriter = os.Stdout
@@ -185,6 +185,7 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(&challenge)
 		c.Header("WWW-Authenticate", wwwauthenticate)
 		c.AbortWithStatus(http.StatusUnauthorized)
+		c.Error(Error.E(op, nil, errNoError, Error.ErrKindInfoForUsers, "Header 'authorization' is empty."))
 		return
 	}
 	creds, err := httpDigestAuthentication.ParseStringIntoStruct(authorization)
@@ -264,10 +265,10 @@ func runHTTPserver(config uploadserver.Config) {
 		// 8 hours for big uploads, clients should retry after that.
 		// Anonymous uploads have no means to retry uploads.
 		ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
-		// TODO(zavla): for WriteTimeout when service will serve files back may be we will need some more time.
-		WriteTimeout:      60 * time.Second,  // total time to write the response
-		ReadHeaderTimeout: 30 * time.Second,  // we need relatively fast response on inaccessable client
-		IdleTimeout:       120 * time.Second, // time for client to post a second request.
+		// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
+		WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
+		ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
+		IdleTimeout:       120 * time.Second,       // time for client to post a second request.
 		//MaxHeaderBytes: 1000,
 	}
 	err = s.ListenAndServe()

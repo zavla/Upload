@@ -95,9 +95,12 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
 		CheckRedirect: redirectPolicyFunc,
-		Timeout:       5 * time.Minute, // we connected to ip port but didn't manage to read the whole response (headers and body) within Timeout
-		Transport:     tr,              // I don't use http.DefaultTransport
-		Jar:           jar,             // http.Request uses jar to keep cookies (to hold sessionID)
+
+		Timeout: 0,
+		// Timeout > 0 do not allow client to upload big files.
+		//Timeout:   5 * time.Minute, // we connected to ip port but didn't manage to read the whole response (headers and body) within Timeout
+		Transport: tr,  // I don't use http.DefaultTransport
+		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
 	}
 
 	waitBeforeRetry := time.Duration(10) * time.Second
@@ -130,8 +133,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		if err != nil || resp == nil {
 			// response may be nil when transport fails with timeout (it may timeout while i am debugging the upload server)
 			if urlErr, ok := err.(*url.Error); ok && urlErr.Timeout() {
-				// err by timeout
-				ret = Error.E(op, err, errCantConnectToServer, 0, "timeout error.")
+				// err by timeout on client side. That is http.Client() fired a timeout.
+				ret = Error.E(op, err, errCanceled, 0, "http.Client() fired a timeout.")
 
 			} else {
 				ret = Error.E(op, err, errWhileSendingARequestToServer, 0, "")

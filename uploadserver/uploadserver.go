@@ -98,6 +98,9 @@ func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 
 			chReciever <- b[:n] // buffered chReciever
 		}
+		// DEBUG!!!
+		// time.Sleep(150 * time.Millisecond)
+
 		if err == io.EOF {
 			return nil // success reading
 		}
@@ -384,7 +387,8 @@ func ServeAnUpload(c *gin.Context) {
 			}
 
 		}
-
+		retErr := Error.ToUser(op, errSessionEnded, "session deleted "+strSessionID)
+		log.Println(logline(c, retErr.Error()))
 		// stale state, we clear clientsstates map for this session
 		delete(clientsstates, strSessionID) // delete is no-op when key not found
 		// we set cookie in response header
@@ -393,11 +397,10 @@ func ServeAnUpload(c *gin.Context) {
 		c.Set(liteimp.KeysessionID, "")
 		// a user remains Authanticated, only a session ID cookie is cleared.
 
-		//c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errSessionEnded, Error.ErrKindInfoForUsers, strSessionID)})
 		//TODO(zavla): HOW to use internationalization???
-		// gin.H USES %V! !!!
+
 		c.JSON(http.StatusBadRequest,
-			gin.H{"error": Error.ToUser(op, errSessionEnded, "").Error()})
+			gin.H{"error": retErr.Error()})
 		return
 
 	}
@@ -456,10 +459,10 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		// Сlient didn't request with proper params.
 		// We expecting URL parametres.
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
-		helpmessage := "" + string(jsonbytes)
+		helpmessage := "service expects from you JSON " + string(jsonbytes)
 		//
 		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true) // clear cookie
-		c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, err, errClientRequestShouldBindToJSON, 0, helpmessage)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": Error.ToUser(op, errClientRequestShouldBindToJSON, helpmessage).Error()})
 		return
 	}
 
@@ -527,13 +530,11 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		return
 	}
 
-	// Client made wrong request
-	c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true) // clear cookie
-	delete(clientsstates, strSessionID)
+	// Client made a request with wrong offset
+	// This will trigger another request from client.
+	// Client must send rest of the file.
+	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 
-	jsonbytes, _ := json.MarshalIndent(whatIsInFile, "", " ")
-	helpmessage := "" + string(jsonbytes)
-	c.JSON(http.StatusBadRequest, gin.H{"error": Error.E(op, nil, errServerExpectsRestOfTheFile, Error.ErrKindInfoForUsers, helpmessage)})
 	return
 }
 
