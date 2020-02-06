@@ -62,9 +62,15 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	if err != nil {
 		return Error.E(op, err, errCantGetFileProperties, 0, "")
 	}
+	filesize := stat.Size()
+
+	err = f.Close() // explicit Close()
+	if err != nil {
+		return Error.E(op, err, errCantOpenFileForReading, 0, "")
+	}
 
 	// creates http.Request
-	req, err := http.NewRequest("POST", where.ToURL, f)
+	req, err := http.NewRequest("POST", where.ToURL, nil)
 	// f will be closed after http.Client.Do
 	if err != nil {
 		return Error.E(op, err, errCantCreateHTTPRequest, 0, "")
@@ -73,7 +79,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	// req = req.WithContext(ctx)
 
-	req.ContentLength = stat.Size()          // file size
 	req.Header.Add("Expect", "100-continue") // client will not send body at once, it will wait for server response status "100-continue"
 	req.Header.Add("sha1", fmt.Sprintf("%x", bsha1))
 	req.Header.Add("Accept-Encoding", "deflate, compress, gzip;q=0, identity") //
@@ -122,15 +127,16 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			return ret
 		default:
 		}
-		// every step makes a request with a new body bytes (continues upload)
-		req.Body = f
-		// the first client request goes without a cookie.
-		// We get the cookies from serverv and other requests come with sessionID in cookies.
+		// every step makes a request with a new body bytes (or continues upload)
+		// !!!req.Body = f // this somehow causes 'file already closed' on cli.Do()
+
+		// The first client request goes without a cookie.
+		// We get the cookies from server and other requests come with sessionID in cookies.
 
 		resp, err := cli.Do(req) // req sends a file f in the body.
-		// ATTENTION: cli.Do() closes the _REQUEST_ body (file f).
+		// ATTENTION: cli.Do() closes the _REQUEST_ body (the file f).
 		// We are supposed to read to the EOF AND close the _RESPONSE_ body but only if err == nil
-		// (when err!=nil RESPONSE body is closed by Do())
+		// (when err!=nil RESPONSE body is closed by Do() itself)
 
 		if err != nil || resp == nil {
 			// here response body is already closed by underlying http.Transport
@@ -153,8 +159,10 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				log.Printf("%s", ret)
 				// file may appear again any time and we will continue upload
 				// TODO(zavla): save filename to queue!!!
-
+				return ret
 			}
+			req.Body = f
+			req.ContentLength = filesize // file size
 
 			continue // retries
 		}
@@ -232,13 +240,13 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			if err != nil {
 				ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
 				log.Printf("%s", ret)
+				return ret
 			}
-
-			continue // this time with Authorization cookie
+			req.Body = f
+			req.ContentLength = filesize // file size
+			continue                     // this time with Authorization cookie
 
 		}
-
-		// next we read RESPONSE resp.Body and need to close it.
 
 		// Open file again as we are going to do the next upload attempt.
 		// The rest IFs are for expected "error" http.StatusConflicts and other upload service specific errors:
@@ -249,6 +257,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			log.Printf("%s", ret)
 			return ret
 		}
+		req.Body = f
+		req.ContentLength = filesize // file size
 		//log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
 			// server responded "a file already exists" with JSON
@@ -273,7 +283,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				return ret // do not retry, just return
 			}
 
-			bytesleft := stat.Size() - newoffset
+			bytesleft := filesize - newoffset
 
 			query = req.URL.Query()
 			query.Set("startoffset", strconv.FormatInt(newoffset, 10))
