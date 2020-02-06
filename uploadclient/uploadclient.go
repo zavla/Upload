@@ -5,10 +5,10 @@ package uploadclient
 
 import (
 	"context"
+	"io"
 
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -86,8 +86,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	tr := &http.Transport{
 
 		Proxy:                 http.ProxyFromEnvironment,
-		ResponseHeaderTimeout: 20 * time.Second, // wait for headers for how long
-		TLSHandshakeTimeout:   20 * time.Second, // time to negotiate for TLS
+		ResponseHeaderTimeout: 10 * time.Second, // wait for headers for how long
+		TLSHandshakeTimeout:   15 * time.Second, // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
 		ExpectContinueTimeout: 20 * time.Second, // expects response status 100-continue before sending the request body
 	}
@@ -128,9 +128,12 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		// We get the cookies from serverv and other requests come with sessionID in cookies.
 
 		resp, err := cli.Do(req) // req sends a file f in the body.
-		// ATTENTION: cli.Do() _closes_ the REQUEST req.Body (file f).
+		// ATTENTION: cli.Do() closes the _REQUEST_ body (file f).
+		// We are supposed to read to the EOF AND close the _RESPONSE_ body but only if err == nil
+		// (when err!=nil RESPONSE body is closed by Do())
 
 		if err != nil || resp == nil {
+			// here response body is already closed by underlying http.Transport
 			// response may be nil when transport fails with timeout (it may timeout while i am debugging the upload server)
 			if urlErr, ok := err.(*url.Error); ok && urlErr.Timeout() {
 				// err by timeout on client side. That is http.Client() fired a timeout.
@@ -155,14 +158,27 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 			continue // retries
 		}
-
-		if resp.StatusCode == http.StatusAccepted {
+		// on err!=nil we must read and close the response body.
+		bodylen, errbodylen := strconv.Atoi(resp.Header.Get("Content-Length"))
+		if errbodylen != nil {
 			_ = resp.Body.Close()
+			return Error.E(op, errbodylen, 0, 0, "Content-Length in response is bad.")
+		}
+		bodybytes := make([]byte, bodylen)
+		if bodylen != 0 {
+			nbytes, errbodyread := io.ReadFull(resp.Body, bodybytes)
+			if errbodyread != nil || nbytes != bodylen {
+				_ = resp.Body.Close()
+				return Error.E(op, errbodyread, 0, 0, "Can't read from response body.")
+			}
+		}
+		_ = resp.Body.Close() // A MUST to free resource descriptor
 
+		//-------decoding status
+		if resp.StatusCode == http.StatusAccepted {
 			return nil // upload completed successfully
 		}
 		if resp.StatusCode == http.StatusForbidden {
-			_ = resp.Body.Close()
 			// server actively denies upload. Changes to the file are forbidden.
 			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
 		}
@@ -172,7 +188,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
 			wwwauthstr := resp.Header.Get("WWW-Authenticate")
-			_ = resp.Body.Close()
 			if wwwauthstr == "" || !strings.HasPrefix(wwwauthstr, "Digest") {
 				return Error.E(op, nil, errBadHTTPAuthanticationMethod, 0, "")
 
@@ -230,7 +245,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		// 		such as service messed something and asks us to retry.
 		f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
 		if err != nil {
-			_ = resp.Body.Close()
 			ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
 			log.Printf("%s", ret)
 			return ret
@@ -238,14 +252,12 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		//log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
 			// server responded "a file already exists" with JSON
-			filestatus, debugbytes, err := decodeJSONinBody(resp)
-
-			_ = resp.Body.Close() // don't need resp.Body any more
+			filestatus, err := decodeJSONinBody(bodybytes)
 
 			if err != nil {
 				// logs incorrect server respone
 
-				ret = Error.E(op, err, errServerRespondedWithBadJSON, 0, string(debugbytes))
+				ret = Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
 				log.Printf("%s", ret)
 				return ret // do not retry, just return
 			}
@@ -276,11 +288,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 
 		{
-			b := make([]byte, 500)
-			n, _ := resp.Body.Read(b)
-			b = b[:n]
 
-			log.Printf("Debug msg: Upload service responded with HTTP status %s, the response body was %s", resp.Status, string(b))
+			log.Printf("Debug msg: Upload service responded with HTTP status %s, the response body was %s", resp.Status, string(bodybytes))
 
 		}
 		// here goes other errors and http.statuses:
@@ -294,30 +303,15 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 // decodeJSONinBody tries to decode resp.Body as a JSON of type liteimp.JsonFileStatus.
 // Doesn't close the resp.Body.
-func decodeJSONinBody(resp *http.Response) (value *liteimp.JsonFileStatus, debugbytes []byte, err error) {
+func decodeJSONinBody(bodybytes []byte) (value *liteimp.JsonFileStatus, err error) {
 
 	const op = "uploader.decodeJSONinBody()"
-
-	value = &liteimp.JsonFileStatus{} // struct
-	if resp.ContentLength == 0 {
-		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
-		return value, nil, ret
-	}
-	b := make([]byte, resp.ContentLength) // expects that server has responded with some json
-	maxjsonlen := int64(4000)
-	ioreader := io.LimitReader(resp.Body, maxjsonlen)
-
-	_, err = ioreader.Read(b)
-
-	if !(err == nil || err == io.EOF) {
-		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
-		return value, nil, ret
-	}
+	value = &liteimp.JsonFileStatus{}
 	// unmarshal server json response
-	if err := json.Unmarshal(b, &value); err != nil {
+	if err := json.Unmarshal(bodybytes, &value); err != nil {
 		ret := Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
-		return value, b, ret
+		return value, ret
 	}
-	return value, nil, nil
+	return value, nil
 
 }

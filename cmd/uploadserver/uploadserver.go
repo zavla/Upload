@@ -43,6 +43,7 @@ func main() {
 	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
 	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon).")
 	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
+	paramAllowAnonymous := flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
 
 	flag.Parse()
 	configdir, _ = filepath.Abs(*paramConfigdir)
@@ -128,6 +129,7 @@ func main() {
 	uploadserver.ConfigThisService.RunningFromDir = rundir
 	uploadserver.ConfigThisService.Configdir = configdir
 	uploadserver.ConfigThisService.Logwriter = logwriter
+	uploadserver.ConfigThisService.AllowAnonymousUse = *paramAllowAnonymous
 
 	log.Printf("uploadserver service started and listening on %s,  writes to storage root %s\n", bindToAddress, storageroot)
 	if asService {
@@ -241,7 +243,13 @@ func runHTTPserver(config uploadserver.Config) {
 
 	// Our authantication middleware. Gin executes this func for evey request.
 	router.Use(func(c *gin.Context) {
+		const op = "Login required."
 		loginFromURL := c.Param("login")
+		if loginFromURL == "" && !config.AllowAnonymousUse {
+			c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"error": Error.ToUser(op, uploadserver.ErrAuthorizationFailed, "Service supports HTTP digest method. Specify a user name as a URL path. .../upload/usernamehere").Error()})
+
+			return
+		}
 		if loginFromURL != "" {
 			loginCheck(c, loginsMap)
 		}

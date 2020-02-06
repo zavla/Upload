@@ -48,6 +48,8 @@ type Config struct {
 	RunningFromDir string
 	// ActionOnCompleteFile your action. Default is to move a journal file to .sha1 directory.
 	ActionOnCompleteFile func(filename, journalfilename string) error
+	// AllowAnonymousUse
+	AllowAnonymousUse bool
 }
 
 // ConfigThisService for config
