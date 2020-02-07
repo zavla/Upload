@@ -111,7 +111,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	}
 
 	waitBeforeRetry := time.Duration(10) * time.Second
-	const constNumberOfRetries = 20
+	const constNumberOfRetries = 120
 	//waitForFileToBecomeAvailable := time.Duration(24) * time.Hour
 
 	ret := Error.E(op, err, errNumberOfRetriesExceeded, 0, "")

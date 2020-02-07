@@ -402,8 +402,8 @@ func ServeAnUpload(c *gin.Context) {
 		log.Println(logline(c, retErr.Error()))
 		// stale state, we clear clientsstates map for this session
 		delete(clientsstates, strSessionID) // delete is no-op when key not found
-		// we set cookie in response header
-		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true)
+		// we set cookie in response header. -1 == delete cookie now.
+		c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true)
 		// we set cookie in current context.
 		c.Set(liteimp.KeysessionID, "")
 		// a user remains Authanticated, only a session ID cookie is cleared.
