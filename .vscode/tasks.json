@@ -10,6 +10,18 @@
             "problemMatcher": [
                 "$go"
             ]
+        },
+        {
+            "label": "make all",
+            "type": "shell",
+            "command": "make all",
+            "problemMatcher": [
+                "$go"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         }
     ]
 }

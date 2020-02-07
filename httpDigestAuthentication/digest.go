@@ -241,3 +241,12 @@ func GenerateResponseAuthorizationParameter(hashUsernameRealmPassword string, cr
 	return h2(hashUsernameRealmPassword, s2), nil
 
 }
+
+// KeyProvePeerHasRightPasswordhash is used by clients to check the server side has the write password hash.
+var KeyProvePeerHasRightPasswordhash = "X-provepeerhaswritehash"
+
+// ProveThatPeerHasRightPasswordhash is used by clients to ask the server to prove that it has the write passwordhash.
+// That is the server didn't just answered 'OK' on our authorization.
+func ProveThatPeerHasRightPasswordhash(hashUsernameRealmPassword, ResponseFromClient string) string {
+	return h2(hashUsernameRealmPassword, ResponseFromClient)
+}

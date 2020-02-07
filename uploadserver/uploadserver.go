@@ -357,6 +357,15 @@ func ServeAnUpload(c *gin.Context) {
 		log.Println(logline(c, fmt.Sprintf("context has no value with key %s", gin.AuthUserKey)))
 		panic("Login in URL but login is not authenticated.")
 	}
+	// no body means no file, but we respond to client with X-provepeerhasrightpasswordhash
+	lcontentstr := c.GetHeader("Content-Length")
+	lcontent, err := strconv.ParseInt(lcontentstr, 10, 64)
+	if lcontent == 0 || err != nil {
+		c.JSON(http.StatusLengthRequired,
+			gin.H{"error": Error.ToUser(op, errContentHeaderRequired, "Service expects a file in request body.").Error()})
+		return // client should make a new request
+	}
+
 	if errNoID != nil || strSessionID == "" {
 		// Here we have no previous session ID. Only new files expected from client.
 
@@ -615,17 +624,6 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 
 	}
 	// here we allow upload!
-	// expects from client a file length if this is a new file
-	lcontentstr := c.GetHeader("Content-Length")
-	lcontent := int64(0)
-	if lcontentstr != "" {
-		lcontent, err = strconv.ParseInt(lcontentstr, 10, 64)
-		if lcontent == 0 || err != nil {
-			c.JSON(http.StatusLengthRequired,
-				gin.H{"error": Error.ToUser(op, errContentHeaderRequired, Error.I18text(`Content-Length header required`)).Error()})
-			return // client should make a new request
-		}
-	}
 	strsha1 := c.GetHeader("Sha1") // unnecessary file checksum.
 
 	// create a map to hold clients state.
@@ -636,6 +634,21 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		name:       name,
 		path:       storagepath,
 		filestatus: *convertFileStateToJSONFileStatus(whatIsInFile),
+	}
+
+	// Expects from client a file length if this is a new file.
+	// But client has passed the authorization, so we add him to the clientsstates map.
+	// Client doesn't send file at once, it waits from server a httpDigestAuthentication.KeyProvePeerHasRightPasswordhash header.
+
+	lcontentstr := c.GetHeader("Content-Length")
+	lcontent := int64(0)
+	if lcontentstr != "" {
+		lcontent, err = strconv.ParseInt(lcontentstr, 10, 64)
+		if lcontent == 0 || err != nil {
+			c.JSON(http.StatusLengthRequired,
+				gin.H{"error": Error.ToUser(op, errContentHeaderRequired, Error.I18text(`Content-Length header required`)).Error()})
+			return // client should make a new request
+		}
 	}
 
 	// Create recieve channel to write bytes for this connection.

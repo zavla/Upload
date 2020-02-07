@@ -54,7 +54,7 @@ func main() {
 
 	// uses log because log.out uses mutex
 	log.SetPrefix("[UPL] ")
-	log.SetFlags(log.LstdFlags | log.LUTC)
+	log.SetFlags(log.LstdFlags)
 
 	if *paramLogname == "" {
 		logwriter = os.Stdout
@@ -166,6 +166,9 @@ func openStoragerootRw(storageroot string) (*os.File, error) {
 	return d, nil
 }
 
+// loginCheck implements HTTP digest authorization scheme with additional header from server
+// that proves the server has the right password hash.
+// Clients may check this additional header to destinguish fake servers.
 func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	const op = "cmd/uploadserver.loginCheck()"
 	h := md5.New()
@@ -187,9 +190,10 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(&challenge)
 		c.Header("WWW-Authenticate", wwwauthenticate)
 		c.AbortWithStatus(http.StatusUnauthorized)
-		c.Error(Error.E(op, nil, errNoError, Error.ErrKindInfoForUsers, "Header 'authorization' is empty."))
+		//c.Error(Error.E(op, nil, errNoError, Error.ErrKindInfoForUsers, "Header 'authorization' is empty."))
 		return
 	}
+	// here we have "Authorization" from client with some text.
 	creds, err := httpDigestAuthentication.ParseStringIntoStruct(authorization)
 	if err != nil {
 		c.AbortWithStatus(http.StatusUnauthorized)
@@ -220,6 +224,13 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 		return
 	}
 	//granted
+
+	// server proves it has write password.
+	// TODO(zavla): prove on every client's request???
+	responsewant, _ := httpDigestAuthentication.GenerateResponseAuthorizationParameter(currlogin.Passwordhash, creds) // no errror, otherwise we can't be here
+	c.Header(httpDigestAuthentication.KeyProvePeerHasRightPasswordhash,
+		httpDigestAuthentication.ProveThatPeerHasRightPasswordhash(currlogin.Passwordhash, responsewant))
+
 	c.Set(gin.AuthUserKey, creds.Username) // grants a login
 }
 

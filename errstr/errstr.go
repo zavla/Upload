@@ -158,12 +158,12 @@ var I18 = make(map[int16]string)
 // I18m is a map for user messages
 var I18m = make(map[string]string)
 
-// I18text localizes
+// I18text localizer
 func I18text(id string, args ...interface{}) string {
 	if I18m != nil {
 		m, ok := I18m[id]
 		if ok {
-			return fmt.Sprintf(m, args)
+			return fmt.Sprintf(m, args...)
 
 		}
 	}

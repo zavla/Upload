@@ -20,10 +20,12 @@ const (
 	ErrAuthorizationFailed
 	errCanceled
 	errWhileSendingARequestToServer
+	errServerDidntProveItHasPasswordhash
 )
 
 func init() {
 	// for Uploader package
+	//------------------ERRORS
 	Error.I18[errCantOpenFileForReading] = "Файл не открывается на чтение."
 	Error.I18[errCantGetFileProperties] = "Система не возвращает свойства файла."
 	Error.I18[errCantCreateHTTPRequest] = "Ошибка создания объекта языка."
@@ -39,4 +41,7 @@ func init() {
 	Error.I18[ErrAuthorizationFailed] = "Authorization failed."
 	Error.I18[errCanceled] = "Sending canceled."
 	Error.I18[errWhileSendingARequestToServer] = "Some error while sending a request to server."
+	Error.I18[errServerDidntProveItHasPasswordhash] = "Server didn't prove it has the right passwordhash."
+	//---------------------MESSAGES
+	//Error.I18m["Server sider didn't prove it has a right password hash."] = ""
 }
