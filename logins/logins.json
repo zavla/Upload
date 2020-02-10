@@ -2,21 +2,33 @@
   "version": "1",
   "logins": [
    {
-    "id": "za1",
-    "email": "email@string",
-    "Passwordhash": "32dadfa06ad760fead2ccbecae2f3a3a",
+    "id": "zahar",
+    "email": "z@b",
+    "Passwordhash": "dd51313621ec164ce398c6eb74348f37",
     "disabled": false
    },
    {
-    "id": "a1",
-    "email": "a@1",
-    "Passwordhash": "079b18347f8b15aea28105d2ac5edbdc",
+    "id": "test@beer-co.com",
+    "email": "test@b",
+    "Passwordhash": "81a92499afa74f014ad5f498a72f97f1",
+    "disabled": false
+   },
+   {
+    "id": "za1",
+    "email": "email@string",
+    "Passwordhash": "pass1",
     "disabled": false
    },
    {
     "id": "a2",
     "email": "a@22",
-    "Passwordhash": "55d561374ef3211495744d581d184f10",
+    "Passwordhash": "pass2",
+    "disabled": false
+   },
+   {
+    "id": "a1",
+    "email": "a@1",
+    "Passwordhash": "pass1",
     "disabled": false
    }
   ]

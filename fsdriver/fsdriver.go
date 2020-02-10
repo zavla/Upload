@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 	Error "upload/errstr"
 )
 
@@ -159,9 +160,20 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 		return
 	}
 
+	joinedname := filepath.Join(dir, name)
+	_, errstat := os.Lstat(joinedname)
+
 	wa, errwa = openToWrite(dir, name)
 	if errwa != nil {
 		return
+	}
+	if os.IsNotExist(errstat) {
+		// if this is a new file we set a timestamp 1986
+		nowt := time.Now()
+		mtime := time.Date(1980, time.February, 1, 0, 0, 1, 1, time.Local)
+		// set old date to indicate that a file is in progress
+		// Other tools from "DBA backups tool set" should respect this indication.
+		_ = os.Chtimes(joinedname, nowt, mtime)
 	}
 	return //named ver, wp, wa, errwp, errwa
 }
@@ -282,9 +294,18 @@ func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 // and use journal to get a file state of the file being uploaded.
 // Upload allowed when there is no such file OR when such file exists and has correspondent journal file.
 // MayUpload analize journal file for current state.
-func MayUpload(storagepath string, name string) (FileState, error) {
+func MayUpload(storagepath string, origname string, nameNotComplete string) (FileState, error) {
 	const op = "fsdriver.MayUpload()"
-	namepart := GetPartialJournalFileName(name)
+	namepart := GetPartialJournalFileName(nameNotComplete)
+
+	name := nameNotComplete
+
+	_, errOrig := os.Stat(filepath.Join(storagepath, origname))
+	if !os.IsNotExist(errOrig) {
+		// Original file exists, we do not allow upload
+		return *NewFileState(0, nil, 0),
+			Error.E(op, errOrig, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "a file is aleady complete.")
+	}
 
 	wastat, err := os.Stat(filepath.Join(storagepath, name))
 	if os.IsNotExist(err) {

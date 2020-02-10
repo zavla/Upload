@@ -139,7 +139,7 @@ func consumeSourceChannel(
 		chResult <- writeresult{0, erra, nil}
 		return
 	}
-	// second (defered) close. It is safe to call Close twice on *os.File.
+	// second (defered) call to Close(). It is safe to call Close() twice on *os.File.
 	defer wa.Close()
 
 	// small blocks buffer - this is a buffer for small []bytes from source
@@ -448,7 +448,8 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 	// Prevents another client update content of the file in between our requests.
 	// Gets a struct with the file current size and state.
-	whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name)
+	nameNotComplete := name + ".part"
+	whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name, nameNotComplete)
 	if err != nil {
 		// Here err!=nil means upload is now allowed
 		delete(clientsstates, strSessionID)
@@ -483,7 +484,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			chReciever,
 			chWriteResult,
 			storagepath,
-			name,
+			nameNotComplete,
 			fsdriver.JournalRecord{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
 		if errreciver != nil || writeresult.err != nil ||
 			(whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize {
@@ -492,7 +493,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			// OR recieved bytea are not the exact end of file
 
 			// update state of the file after failed upload
-			whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name)
+			whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name, nameNotComplete)
 			if err != nil {
 				// Here err!=nil means upload is now allowed
 
@@ -513,9 +514,9 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 		// SUCCESS!!!
 		// Next check fact sha1 with expected sha1 if it was given.
-		factsha1, err := fsdriver.GetFileSha1(storagepath, name)
+		factsha1, err := fsdriver.GetFileSha1(storagepath, nameNotComplete)
 		if err != nil {
-			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", name, err)))
+			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", nameNotComplete, err)))
 		}
 		wantsha1 := whatIsInFile.Sha1
 		if !bytes.Equal(wantsha1, emptysha1[:]) {
@@ -531,7 +532,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 
-		err = eventOnSuccess(c, storagepath, name, factsha1)
+		err = eventOnSuccess(c, storagepath, name, nameNotComplete, factsha1)
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 		}
@@ -609,7 +610,8 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 	// Get a struct with the file current size and state.
 	// File may be partially uploaded.
 	// MayUpload returns info about existing file.
-	whatIsInFile, err := fsdriver.MayUpload(storagepath, name)
+	nameNotComplete := name + ".part"
+	whatIsInFile, err := fsdriver.MayUpload(storagepath, name, nameNotComplete)
 	if err != nil {
 		// c.Error(err)
 
@@ -669,7 +671,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		}
 		// next fill a header of journal file
 
-		err := fsdriver.CreateNewPartialJournalFile(storagepath, name, lcontent, sha1fromclient)
+		err := fsdriver.CreateNewPartialJournalFile(storagepath, nameNotComplete, lcontent, sha1fromclient)
 		if err != nil {
 			log.Println(logline(c, err.Error()))
 			c.JSON(http.StatusInternalServerError,
@@ -684,7 +686,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 			chReciever,
 			chWriteResult,
 			storagepath,
-			name,
+			nameNotComplete,
 			fsdriver.JournalRecord{Count: lcontent, Startoffset: 0}) // blocks current Goroutine
 
 		if errreciver != nil || writeresult.err != nil { // reciver OR write failed
@@ -707,7 +709,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		}
 
 		// Next we try to check sha1.
-		factsha1, err := fsdriver.GetFileSha1(storagepath, name)
+		factsha1, err := fsdriver.GetFileSha1(storagepath, nameNotComplete)
 		if sha1fromclient != nil {
 			// There was a sha1 from client, we may check correctness now.
 
@@ -721,7 +723,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		}
 
 		//SUCCESS!!!
-		err = eventOnSuccess(c, storagepath, name, factsha1)
+		err = eventOnSuccess(c, storagepath, name, nameNotComplete, factsha1)
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 		}
@@ -808,12 +810,13 @@ func closeFiles(wa, wp *os.File) ([]error, error) {
 
 // eventOnSuccess is called on successfull upload of the file with name 'name'.
 // Currently it moves journal file to a .sha1 directory.
-func eventOnSuccess(c *gin.Context, storagepath, name string, factsha1 []byte) (err error) {
-	journalName := fsdriver.GetPartialJournalFileName(name)
+func eventOnSuccess(c *gin.Context, storagepath, name string, nameNotComplete string, factsha1 []byte) (err error) {
+	journalName := fsdriver.GetPartialJournalFileName(nameNotComplete)
+	newjournalName := fsdriver.GetPartialJournalFileName(name)
 	err = nil
 	if ConfigThisService.ActionOnCompleteFile == nil {
 		// default action == move to .sha1
-		journalNewName := getFinalNameOfJournalFile(journalName, factsha1)
+		journalNewName := getFinalNameOfJournalFile(newjournalName, factsha1)
 		journalNewPath := storagepath + "/.sha1" // all journals we will store in a directory
 		newabsfilename := filepath.Join(journalNewPath, journalNewName)
 		// actual action on the journal file: journal is renamed and moved to .sha1 dir.
@@ -822,10 +825,15 @@ func eventOnSuccess(c *gin.Context, storagepath, name string, factsha1 []byte) (
 			log.Println(logline(c, fmt.Sprintf("mkdir failed %s: %s", journalNewPath, mkerr)))
 
 		}
+		// rename a journal file
 		err = os.Rename(filepath.Join(storagepath, journalName), newabsfilename)
-
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s: %s", journalName, journalNewName, err)))
+		}
+		// rename actual file
+		err = os.Rename(filepath.Join(storagepath, nameNotComplete), filepath.Join(storagepath, name))
+		if err != nil {
+			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s: %s", nameNotComplete, name, err)))
 		}
 
 	} else {

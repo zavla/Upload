@@ -139,7 +139,8 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 				// we reach end of file. EOF is not an error in data. We have read the last record.
 				lasterr = nil
 				if maybeErr {
-					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "Journal file doesn't have a 'write ended' record.")
+					// Journal file doesn't have a 'write ended' record.
+					lasterr = Error.E(op, err, errPartialFileCorrupted, 0, "")
 				}
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,

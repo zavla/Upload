@@ -96,14 +96,6 @@ func TestGenerateAuthorizationResponseParameter(t *testing.T) {
 			want:    "6629fae49393a05397450978507c4ef1",
 			wantErr: false,
 		},
-		{name: "curl response",
-			args: args{
-				hashUsernameRealmPassword: HashUsernameRealmPassword("zahar", "upload", string(curlPass)),
-				cr:                        *curlCredentials,
-			},
-			want:    "6629fae49393a05397450978507c4ef1",
-			wantErr: false,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

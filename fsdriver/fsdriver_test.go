@@ -59,21 +59,6 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 			wantVer:      structversion2,
 		},
 	}
-	// next a first! recieved with panic file
-	log2, err := os.Open("./testdata/checklater/sendfile.rar.partialinfo")
-	if err != nil {
-		t.Errorf("%s", err)
-		return
-	}
-	tests = append(tests, dcase{
-		name:         "recived with panic",
-		args:         args{log2}, // here goes io.Reader to read from
-		wantRetState: FileState{Startoffset: 94207, fileProperties: fileProperties{FileSize: 16961536}},
-		wantJOff:     0xDC + 4,
-		wantErr:      true,
-		errkind:      Error.E("fsdriver.ReadCurrentStateFromJournalVer1()", io.EOF, errPartialFileCorrupted, 0, ""),
-		wantVer:      structversion1,
-	})
 
 	// next transform towrite structs to dcase structs
 	for k, v := range datainfiles {
@@ -142,19 +127,19 @@ func TestReadCurrentStateFromPartialFileVer1(t *testing.T) {
 				return
 			}
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ReadCurrentStateFromPartialFile() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ReadCurrentStateFromPartialFile()\n got error = %v,\n wantErr = %v", err, tt.wantErr)
 				return
 			}
 			//if tt.wantErr && err != tt.errkind {
 			if tt.wantErr && !reflect.DeepEqual(err, tt.errkind) {
-				t.Errorf("ReadCurrentStateFromPartialFile() = %v, want %v", err, tt.errkind)
+				t.Errorf("ReadCurrentStateFromPartialFile()\n got = %v,\n want = %v", err, tt.errkind)
 				return
 			}
 			if !reflect.DeepEqual(gotRetState, tt.wantRetState) {
-				t.Errorf("ReadCurrentStateFromPartialFile() = %#v, want %#v", gotRetState, tt.wantRetState)
+				t.Errorf("ReadCurrentStateFromPartialFile()\n got = %#v,\n want = %#v", gotRetState, tt.wantRetState)
 			}
 			if offsetinjournal != tt.wantJOff {
-				t.Errorf("ReadCurrentStateFromPartialFile().wantJOff, got %d, want %d", offsetinjournal, tt.wantJOff)
+				t.Errorf("ReadCurrentStateFromPartialFile().wantJOff,\n got = %d,\n want = %d", offsetinjournal, tt.wantJOff)
 			}
 		})
 	}
@@ -499,10 +484,12 @@ func createtestdataVer2(t *testing.T) (map[string]towrite, error) {
 		},
 	}
 	//-----------------------
+	emptySha1 := [20]byte{}
 	// everywhere is structversion1
 	for k := range data {
 		data[k].wantVer = structversion2
 		data[k].name = data[k].name + "Ver2"
+		data[k].wantRetState.Sha1 = emptySha1[:]
 	}
 	//
 	ret := make(map[string]towrite) // a return, map[filename]towrite
@@ -554,7 +541,7 @@ func noTestMayUpload_srvr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := MayUpload(tt.args.storagepath, tt.args.name)
+			_, err := MayUpload(tt.args.storagepath, tt.args.name, tt.args.name+".part")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MayUpload() error = %v, wantErr %v", err, tt.wantErr)
 				return
