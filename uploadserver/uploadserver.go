@@ -2,6 +2,7 @@ package uploadserver
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -50,6 +51,7 @@ type Config struct {
 	ActionOnCompleteFile func(filename, journalfilename string) error
 	// AllowAnonymousUse
 	AllowAnonymousUse bool
+	Certs             []tls.Certificate
 }
 
 // ConfigThisService for config

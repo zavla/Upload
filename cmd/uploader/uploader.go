@@ -3,6 +3,8 @@ package main
 // substitution is
 // curl.exe -v -X POST 'http://127.0.0.1:64000/upload/zahar?&Filename="sendfile.rar"' -T .\testbackups\sendfile.rar --anyauth --user zahar
 import (
+	"crypto/x509"
+	"io/ioutil"
 	"time"
 	Error "upload/errstr"
 	"upload/fsdriver"
@@ -133,6 +135,43 @@ func main() {
 		where.ToURL += *username
 	} /* else there is no password */
 
+	// load CA certificates for checking of services' certificates
+	var certpool *x509.CertPool
+	dirConfig := filepath.Dir(passwordfile)
+	certFile := filepath.Join(dirConfig, "mkcertCA.pem")
+	_, errCertPub := os.Stat(certFile)
+	if !os.IsNotExist(errCertPub) {
+		certpool = x509.NewCertPool()
+		pemCerts, err := ioutil.ReadFile(certFile)
+		if err == nil {
+			ok := certpool.AppendCertsFromPEM(pemCerts)
+			if ok {
+
+			}
+		}
+	}
+	// load certificates
+	//var certSl []tls.Certificate
+	// if !os.IsNotExist(errCertPub) {
+	// 	pemCerts, err := ioutil.ReadFile(certFile)
+	// 	if err == nil {
+	// 		pBlock, _ := pem.Decode(pemCerts)
+	// 		if pBlock == nil {
+	// 			log.Printf("PEM encoding of service Certificate read from file %s are bad.", certFile)
+	// 		} else {
+	// 			serviceCA, err := x509.ParseCertificate(pBlock.Bytes)
+	// 			if err != nil {
+	// 				log.Printf("Parse of CA Certificate from file %s failed.", certFile)
+
+	// 			} else {
+	// 				certSl = []tls.Certificate{tls.Certificate{Leaf: serviceCA}}
+	// 			}
+	// 		}
+	// 	}
+	// }
+	//where.Certs = certSl
+	where.CApool = certpool
+
 	// chNames is a channel with filenames to upload
 	chNames := make(chan string, 2)
 
@@ -147,7 +186,6 @@ func main() {
 		close(chNames)
 	}
 	// TODO(zavla): import "github.com/fsnotify/fsnotify"
-	// TODO(zavla): autotls?
 	// TODO(zavla): CSRF, do not mix POST request with URL parametres!
 	// TODO(zavla): in server calculate speed of upload.
 

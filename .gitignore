@@ -32,3 +32,4 @@ cmd/uploadserver/__debug_bin
 cmd/uploader/logins.json
 cmd/uploadserver/logins.json
 cmd/uploader/logins.json
+*.pem

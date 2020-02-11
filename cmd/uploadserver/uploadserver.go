@@ -6,6 +6,7 @@ package main
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	Error "upload/errstr"
@@ -246,7 +247,22 @@ func runHTTPserver(config uploadserver.Config) {
 		}
 	}
 	loginsMap := loginsToMap(loginsstruct)
-
+	// load certs
+	var tlsConfig *tls.Config
+	certFile := filepath.Join(config.Configdir, "upload.pem")
+	keyFile := filepath.Join(config.Configdir, "upload-key.pem")
+	_, errCertPub := os.Stat(certFile)
+	_, errCertKey := os.Stat(keyFile)
+	if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
+		certUpload, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			log.Printf("Certificate files have error: %s", err)
+			return
+		}
+		tlsConfig = new(tls.Config)
+		tlsConfig.Certificates = []tls.Certificate{certUpload}
+	}
+	// gin specifics
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
 	router.Use(gin.LoggerWithWriter(config.Logwriter),
@@ -278,9 +294,9 @@ func runHTTPserver(config uploadserver.Config) {
 
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{
-		Addr:    config.BindAddress,
-		Handler: router,
-
+		Addr:      config.BindAddress,
+		Handler:   router,
+		TLSConfig: tlsConfig,
 		// 8 hours for big uploads, clients should retry after that.
 		// Anonymous uploads have no means to retry uploads.
 		ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
@@ -290,7 +306,11 @@ func runHTTPserver(config uploadserver.Config) {
 		IdleTimeout:       120 * time.Second,       // time for client to post a second request.
 		//MaxHeaderBytes: 1000,
 	}
-	err = s.ListenAndServe()
+	if tlsConfig == nil {
+		err = s.ListenAndServe()
+	} else {
+		err = s.ListenAndServeTLS(certFile, keyFile)
+	}
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 	}

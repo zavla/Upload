@@ -5,6 +5,8 @@ package uploadclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"io"
 
 	"encoding/json"
@@ -33,6 +35,8 @@ type ConnectConfig struct {
 	// OR you may specify a hash
 	PasswordHash string // one may already store a hash of password
 	Username     string
+	Certs        []tls.Certificate
+	CApool       *x509.CertPool // for the client to check the servers certificates
 }
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
@@ -89,16 +93,28 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	query.Add("filename", name) // url parameter &filename
 	req.URL.RawQuery = query.Encode()
 
+	// tls if caller supplied us with certificates
+	var tlsConf *tls.Config
+	if where.CApool != nil {
+		tlsConf = &tls.Config{
+			RootCAs: where.CApool,
+		}
+
+		if where.Certs != nil {
+			tlsConf.Certificates = where.Certs
+		}
+
+	}
+
 	// I use transport to define timeouts: idle and expect timeout
 	tr := &http.Transport{
-
+		TLSClientConfig:       tlsConf,
 		Proxy:                 http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: 7 * time.Hour,    // wait for headers for how long
 		TLSHandshakeTimeout:   15 * time.Second, // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
 		ExpectContinueTimeout: 10 * time.Second, // expects response status 100-continue before sending the request body
 	}
-
 	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
 		CheckRedirect: redirectPolicyFunc,
@@ -127,7 +143,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// cycle for some errors that can be tolerated
 	for i := 0; i < constNumberOfRetries; i++ {
 
-		// first we check to see a cancel signal
+		// first we check a cancel signal
 		select {
 		case <-ctx.Done(): // cancel signal
 			ret = Error.E(op, nil, errCanceled, 0, "")
