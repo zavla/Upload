@@ -243,7 +243,7 @@ func GenerateResponseAuthorizationParameter(hashUsernameRealmPassword string, cr
 }
 
 // KeyProvePeerHasRightPasswordhash is used by clients to check the server side has the write password hash.
-var KeyProvePeerHasRightPasswordhash = "X-provepeerhaswritehash"
+var KeyProvePeerHasRightPasswordhash = "X-ProveThatPeerHasTheRightHash"
 
 // ProveThatPeerHasRightPasswordhash is used by clients to ask the server to prove that it has the write passwordhash.
 // That is the server didn't just answered 'OK' on our authorization.

@@ -75,7 +75,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 	// creates http.Request
 	req, err := http.NewRequest("POST", where.ToURL, nil)
-	// f will be closed after http.Client.Do
+
 	if err != nil {
 		return Error.E(op, err, errCantCreateHTTPRequest, 0, "")
 	}
@@ -83,8 +83,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	// req = req.WithContext(ctx)
 
-	// 'file already closed'???
-	req.Header.Add("Expect", "100-continue")                                   // Client will not send body at once, it will wait for server response status "100-continue"
+	// 'file already closed' !!!!!!!!!!!!!!!!!! with 100-continue
+	// req.Header.Add("Expect", "100-continue")                                   // Client will not send body at once, it will wait for server response status "100-continue"
 	req.Header.Add("Connection", "keep-alive")                                 // We have at least two roundprtips for authorization
 	req.Header.Add("Accept-Encoding", "deflate, compress, gzip;q=0, identity") //
 	req.Header.Add("sha1", fmt.Sprintf("%x", bsha1))
@@ -93,7 +93,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	query.Add("filename", name) // url parameter &filename
 	req.URL.RawQuery = query.Encode()
 
-	// tls if caller supplied us with certificates
+	// Use TLS if caller supplied us with root CA certificates and optional user certificates.
 	var tlsConf *tls.Config
 	if where.CApool != nil {
 		tlsConf = &tls.Config{
@@ -113,7 +113,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		ResponseHeaderTimeout: 7 * time.Hour,    // wait for headers for how long
 		TLSHandshakeTimeout:   15 * time.Second, // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
-		ExpectContinueTimeout: 10 * time.Second, // expects response status 100-continue before sending the request body
+		// DEBUG !!!
+		ExpectContinueTimeout: 0,
+		//ExpectContinueTimeout: 10 * time.Second, // expects response status 100-continue before sending the request body
 	}
 	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
@@ -162,7 +164,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		// We are supposed to read to the EOF AND close the _RESPONSE_ body but only if err == nil
 		// (when err!=nil RESPONSE body is closed by Do() itself)
 
-		req.Body = nil // lets ensure no file will be transfered on next request unless explicitly aranged
+		req.Body = nil // lets ensure no file will be transfered on next request unless explicitly arainged by "req.Body = f"
 
 		if err != nil || resp == nil {
 			// here response body is already closed by underlying http.Transport
@@ -215,8 +217,11 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			}
 		}
 		_ = resp.Body.Close() // A MUST to free resource descriptor
+		req.ContentLength = 0
+		// DEBUG !!!
+		log.Printf("%s", resp.Status)
 
-		// extract prove from server of right password
+		// Here client extracts a prove from server that it has the right password hash
 		if authorizationsent {
 			aprove := resp.Header.Get(httpDigestAuthentication.KeyProvePeerHasRightPasswordhash)
 			if aprove != "" && savedProveServerHasRightPasswordhash == aprove {
@@ -284,45 +289,24 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			req.Header.Set("Authorization", httpDigestAuthentication.GenerateAuthorization(challengeAndCredentials))
 			authorizationsent = true
 
-			// f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
-			// if err != nil {
-			// 	ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
-			// 	log.Printf("%s", ret)
-			// 	return ret
-			// }
+			// TODO(zavla): decide if this IF is needed
 			// if oneResponseFromServerHasAProveOfRightPasswordhash {
-			// 	req.Body = f
-			// 	req.ContentLength = filesize // file size
-			// }
-			//---
-			//req.Body = nil
-			if oneResponseFromServerHasAProveOfRightPasswordhash {
-				f, err = openandseekRO(fullfilename, currentfilestatus.Startoffset)
-				if err != nil {
-					// file may appear again any time and we will continue upload
-					// TODO(zavla): save filename to queue!!!
+			// 	f, err = openandseekRO(fullfilename, currentfilestatus.Startoffset)
+			// 	if err != nil {
+			// 		// file may appear again any time and we will continue upload
+			// 		// TODO(zavla): save filename to queue!!!
 
-					ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-					log.Printf("%s", ret)
-					return ret
-				}
-				req.Body = f
-				req.ContentLength = currentfilestatus.Count // file size
-			}
+			// 		ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
+			// 		log.Printf("%s", ret)
+			// 		return ret
+			// 	}
+			// 	req.Body = f
+			// 	req.ContentLength = currentfilestatus.Count // file size
+			// }
 
 			continue // this time with Authorization cookie
 
 		}
-
-		// Open file again as we are going to do the next upload attempt.
-		// The rest IFs are for expected "error" http.StatusConflicts and other upload service specific errors:
-		// 		such as service messed something and asks us to retry.
-		// f, err = os.OpenFile(fullfilename, os.O_RDONLY, 0)
-		// if err != nil {
-		// 	ret = Error.E(op, err, errCantOpenFileForReading, 0, "")
-		// 	log.Printf("%s", ret)
-		// 	return ret
-		// }
 
 		if resp.StatusCode == http.StatusLengthRequired &&
 			oneResponseFromServerHasAProveOfRightPasswordhash {
@@ -360,7 +344,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			if err != nil {
 				ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
 				log.Printf("%s", ret)
-				return ret // do not retry, just return
+				return ret // do not retry if we can't open the file, just return
 			}
 
 			bytesleft := filesize - startfrom
@@ -376,7 +360,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			query.Set("count", strconv.FormatInt(currentfilestatus.Count, 10))
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
-			log.Printf("%s: continue from startoffset %d", op, currentfilestatus.Startoffset)
+			log.Printf("%s: continue from startoffset %d for file %s", op, currentfilestatus.Startoffset, name)
 			// no delay, do expected request again
 			continue // cycles to next cli.Do()
 

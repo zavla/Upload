@@ -85,10 +85,14 @@ type writeresult struct {
 func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 	const op = "uploadserver.recieveAndSendToChan()"
 	// timeout is set via http.Server{Timeout...}
-	defer close(chReciever)
-
+	defer func() {
+		log.Printf("%s is closing chan chReciever", op)
+		close(chReciever)
+	}()
+	// DEBUG !!! 4096 always!!!! tcp segment size?
 	blocklen := constCountBlocksToReadFromWire * constrecieveblocklen
 	i := 0
+
 	for { // endless recieve loop
 
 		b := make([]byte, blocklen) // must allocate for every read or else reads will overwrite previous b
@@ -97,13 +101,17 @@ func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 
 			return Error.E(op, err, errConnectionReadError, 0, "") // or timeout?
 		}
-
+		// DEBUG !!!
+		// if n != debugn {
+		// 	log.Printf("from wire %d bytes in one loop", n)
+		// 	debugn = n
+		// }
 		if n > 0 {
 
 			chReciever <- b[:n] // buffered chReciever
 		}
 		// DEBUG!!!
-		// time.Sleep(150 * time.Millisecond)
+		//time.Sleep(2 * time.Millisecond)
 
 		if err == io.EOF {
 			return nil // success reading
@@ -180,6 +188,8 @@ func consumeSourceChannel(
 				if writeerr != nil {
 					err = writeerr
 				}
+				// DEBUG !!!
+				log.Printf("<-chSource is closed with nbyteswritten==%d", nbyteswritten)
 
 				chResult <- writeresult{nbyteswritten, err, slerrors} // err==nil means no error
 				return
@@ -188,7 +198,7 @@ func consumeSourceChannel(
 			// here channel is not empty
 			if len(b) != 0 {
 				addedtosmallbytes := false // flag if the current b is in smallbytes or stands alone.
-				if len(b) < constrecieveblocklen {
+				if (len(b) + smallbytestotal) <= constrecieveblocklen {
 					copy(smallbytes[smallbytestotal:], b)
 
 					smallbytestotal += len(b)
@@ -196,6 +206,7 @@ func consumeSourceChannel(
 				}
 				// if b is large for smallbytes but smallbytes not empty?
 
+				// Small bytes buffer is overflown or current b must be written to disk
 				if smallbytestotal > constrecieveblocklen ||
 					(!addedtosmallbytes && smallbytestotal != 0) {
 
@@ -218,7 +229,7 @@ func consumeSourceChannel(
 					}
 
 				}
-				if !addedtosmallbytes { // this b is not in smallbytes buffer
+				if !addedtosmallbytes { // this b is not in smallbytes buffer and must be written to disk
 
 					debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
 					// ACTUAL WRITE
@@ -259,6 +270,7 @@ func startWriteStartRecieveAndWait(c *gin.Context, cRequestBody io.ReadCloser,
 		// check input params
 		helpmessage := fmt.Sprintf("The file offset in your request is wrong: %d.", expectedcount)
 		currerr := Error.E(op, nil, errWrongFuncParameters, Error.ErrKindInfoForUsers, helpmessage)
+		log.Println(logline(c, currerr.Error()))
 		return writeresult{
 			count: 0,
 			err:   currerr,
@@ -359,7 +371,7 @@ func ServeAnUpload(c *gin.Context) {
 		log.Println(logline(c, fmt.Sprintf("context has no value with key %s", gin.AuthUserKey)))
 		panic("Login in URL but login is not authenticated.")
 	}
-	// no body means no file, but we respond to client with X-provepeerhasrightpasswordhash
+	// no body means no file, but we respond to client with X-ProvePeerHasTheRightPasswordHash
 	lcontentstr := c.GetHeader("Content-Length")
 	lcontent, err := strconv.ParseInt(lcontentstr, 10, 64)
 	if lcontent == 0 || err != nil {
@@ -395,7 +407,7 @@ func ServeAnUpload(c *gin.Context) {
 				// c holds session ID in KeyValue pair
 				c.Set(liteimp.KeysessionID, strSessionID)
 
-				requestedAnUploadContinueUpload(c, state) // continue upload
+				requestedAnUploadContinueUpload(c, state, lcontent) // continue upload
 				return
 			}
 
@@ -423,7 +435,7 @@ func ServeAnUpload(c *gin.Context) {
 // requestedAnUploadContinueUpload continues an upload of a partially uploaded (not complete) file.
 // Expects in request from client a liteimp.QueryParamsToContinueUpload with data
 // correspondend to server's state of the file.
-func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUpload) {
+func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUpload, lcontent int64) {
 	const op = "uploadserver.requestedAnUploadContinueUpload()"
 	name := savedstate.name
 	storagepath := savedstate.path
@@ -435,7 +447,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	_, loaded := usedfiles.LoadOrStore(name, true) // equals to ReadOrStore
 	if loaded {
 		// file is already busy at the moment
-		c.JSON(http.StatusConflict, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, name)})
+		c.JSON(http.StatusForbidden, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, name)})
 		return
 	}
 	// clears sync.Map after this func exits.
@@ -481,6 +493,13 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	}
 
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
+		// DEBUG !!!
+		log.Printf("%s : lcontent is %d", op, lcontent)
+		// select {
+		// case _, ok := <-chReciever:
+		// 	log.Printf("chReciever is %v", ok)
+		// }
+
 		// client sends propper rest of the file
 		writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
@@ -490,6 +509,9 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			fsdriver.JournalRecord{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
 		if errreciver != nil || writeresult.err != nil ||
 			(whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize {
+
+			log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned errreciver = %s", errreciver)))
+			log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned writeresult.err = %s", writeresult.err)))
 			// server failed to write all the bytes,
 			// OR reciever failed to recieve all the bytes
 			// OR recieved bytea are not the exact end of file
@@ -510,6 +532,8 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			}
 			// This will trigger another request from client.
 			// Client must send rest of the file.
+			// DEBUG !!!
+			log.Println(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG after failed upload whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize %d + %d != %d", whatIsInFile.Startoffset, writeresult.count, whatIsInFile.FileSize)).Error()))
 			c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 			return
 		}
@@ -547,6 +571,10 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	// Client made a request with wrong offset
 	// This will trigger another request from client.
 	// Client must send rest of the file.
+
+	// DEBUG !!!
+	log.Println(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG client made a request with wrong offset fromClient.Startoffset == whatIsInFile.Startoffset %d == %d ", fromClient.Startoffset, whatIsInFile.Startoffset)).Error()))
+
 	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 
 	return
@@ -603,7 +631,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 	_, loaded := usedfiles.LoadOrStore(lockobject, true) // equal to ReadOrStore
 	if loaded {
 		// file is already busy at the moment
-		c.JSON(http.StatusConflict,
+		c.JSON(http.StatusForbidden,
 			gin.H{"error": Error.ToUser(op, errRequestedFileIsBusy, fullpath).Error()})
 		return
 	}
@@ -755,7 +783,7 @@ func waitForWriteToFinish(chWriteResult chan writeresult, expectednbytes int64) 
 	retwriteresult = writeresult{count: 0, err: Error.E(op, nil, errUnexpectedFuncReturn, 0, "")}
 
 	// waits for value in channel chWriteResult or chWriteResult be closed
-	select {
+	select { // WAITS
 	case retwriteresult = <-chWriteResult:
 	}
 	nbyteswritten = retwriteresult.count
