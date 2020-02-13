@@ -11,7 +11,7 @@ const (
 	errContentHeaderRequired
 	errServerFailToWriteAllbytes
 	errClientRequestShouldBindToJSON
-	errSessionEnded = 2008
+	errSessionEnded
 	errWrongFuncParameters
 	errSha1CheckFailed
 	errPathError

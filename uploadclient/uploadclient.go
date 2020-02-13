@@ -113,9 +113,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		ResponseHeaderTimeout: 7 * time.Hour,    // wait for headers for how long
 		TLSHandshakeTimeout:   15 * time.Second, // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
-		// DEBUG !!!
-		//ExpectContinueTimeout: 0,
-		ExpectContinueTimeout: 30 * time.Second, // expects response status 100-continue before sending the request body
+		ExpectContinueTimeout: 10 * time.Second, // expects response status 100-continue before sending the request body
 	}
 	// use http.Client to define cookies jar and transport usage
 	cli := &http.Client{
@@ -218,8 +216,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 		_ = resp.Body.Close() // A MUST to free resource descriptor
 		req.ContentLength = 0
-		// DEBUG !!!
-		log.Printf("%s", resp.Status)
+		// DEBUG !!! //log.Printf("%s", resp.Status)
 
 		// Here client extracts a prove from server that it has the right password hash.
 		// Any response from server will hold a prove.
@@ -308,30 +305,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			continue // this time with Authorization cookie
 
 		}
-
-		// if resp.StatusCode == http.StatusLengthRequired &&
-		// 	oneResponseFromServerHasAProveOfRightPasswordhash {
-		// 	// server has proved it has the right hash and complain that we haven't sent a file in the body
-		// 	// log.Printf("server complain we haven't send a file.")
-		// 	f, err = openandseekRO(fullfilename, currentfilestatus.Startoffset)
-		// 	if err != nil {
-		// 		ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-		// 		log.Printf("%s", ret)
-		// 		return ret
-		// 	}
-		// 	req.Body = f
-		// 	req.ContentLength = currentfilestatus.Count // file size
-
-		// 	query = req.URL.Query()
-		// 	query.Set("startoffset", strconv.FormatInt(currentfilestatus.Startoffset, 10))
-		// 	query.Set("count", strconv.FormatInt(currentfilestatus.Count, 10))
-		// 	query.Set("filename", name)
-		// 	req.URL.RawQuery = query.Encode()
-		// 	log.Printf("%s: continue from startoffset %d for file %s", op, currentfilestatus.Startoffset, name)
-		// 	continue
-		// }
-
-		//log.Printf("Connected to %s", req.URL)
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
 			// server responded "a file already exists" with JSON
 			filestatus, err := decodeJSONinBody(bodybytes)
@@ -368,7 +341,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			query.Set("count", strconv.FormatInt(currentfilestatus.Count, 10))
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
-			log.Printf("%s: conflict, continue from startoffset %d for file %s", op, currentfilestatus.Startoffset, name)
+			if currentfilestatus.Startoffset != 0 {
+				log.Printf("%s: continue from startoffset %d for file %s", op, currentfilestatus.Startoffset, name)
+			}
 			// no delay, do expected request again
 			continue // cycles to next cli.Do()
 
