@@ -1,7 +1,6 @@
 package uploadserver
 
 import (
-	"upload/liteimp"
 	"fmt"
 	"html/template"
 	"log"
@@ -9,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"upload/liteimp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,12 +21,14 @@ type smallinf struct {
 // GetFileList is a gin.HandlerFunc.
 // Returns a response with html page "list of files"
 func GetFileList(c *gin.Context) {
-	storagepath := GetPathWhereToStore(c)
+	username := c.Param("login")
+
+	storagepath := GetPathWhereToStoreByUsername(username)
 
 	var listFilter liteimp.RequestForFileList
 	err := c.ShouldBindQuery(&listFilter)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad URL parameters"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "expecting '?filter=*' URL parameter"})
 		return
 	}
 	isnamefilter := false
@@ -34,7 +36,7 @@ func GetFileList(c *gin.Context) {
 	if listFilter.Filter != "" {
 		reg, err = regexp.Compile(listFilter.Filter)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "filter URL parameter is bad"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "'filter' URL parameter regexp is bad"})
 			return
 
 		}
@@ -62,8 +64,11 @@ func GetFileList(c *gin.Context) {
 func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []smallinf {
 	nameslist := make([]smallinf, 0, 200)
 	filepath.Walk(storagepath, func(path string, info os.FileInfo, errinfile error) error {
-		if info.IsDir() && path != "." {
+		if errinfile != nil {
 			return filepath.SkipDir
+		}
+		if info.IsDir() { //&& path == storagepath {
+			return nil //next file
 		}
 		if isnamefilter {
 			is := reg.FindString(path)

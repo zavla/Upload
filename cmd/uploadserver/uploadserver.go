@@ -289,9 +289,9 @@ func runHTTPserver(config uploadserver.Config) {
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
 	// per user upload
-	router.Handle("GET", "/upload/*login", uploadserver.ServeAnUpload)
-	router.Handle("POST", "/upload/*login", uploadserver.ServeAnUpload)
-	router.Handle("GET", "/list/*login", uploadserver.GetFileList)
+	router.Handle("GET", "/upload/:login", uploadserver.ServeAnUpload)
+	router.Handle("POST", "/upload/:login", uploadserver.ServeAnUpload)
+	router.Handle("GET", "/upload/:login/list", uploadserver.GetFileList)
 
 	//router.Run(bindToAddress)  timeouts needed
 	s := &http.Server{

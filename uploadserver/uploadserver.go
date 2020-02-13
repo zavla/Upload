@@ -754,6 +754,12 @@ func GetPathWhereToStore(c *gin.Context) string {
 	}
 	return filepath.Join(ConfigThisService.Storageroot, filepath.Base(username))
 }
+func GetPathWhereToStoreByUsername(username string) string {
+	if username == "" {
+		return ConfigThisService.Storageroot
+	}
+	return filepath.Join(ConfigThisService.Storageroot, filepath.Base(username))
+}
 
 // getFinalNameOfJournalFile return the journal file name when its upload successfully completes.
 // e.x. abcd.partialinfo -> abcd.sha-XXXX... . XXXX is the hex of the actual file hash.
