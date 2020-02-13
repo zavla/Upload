@@ -233,6 +233,7 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 		httpDigestAuthentication.ProveThatPeerHasRightPasswordhash(currlogin.Passwordhash, responsewant))
 
 	c.Set(gin.AuthUserKey, creds.Username) // grants a login
+	return                                 // normal exits and calls other handlers
 }
 
 func runHTTPserver(config uploadserver.Config) {

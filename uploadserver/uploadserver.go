@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,9 +26,10 @@ import (
 )
 
 type stateOfFileUpload struct {
-	good       bool
-	name       string
-	path       string
+	userquery
+	good bool
+	// name       string
+	// path       string
 	filestatus liteimp.JsonFileStatus
 }
 
@@ -361,11 +363,13 @@ func ServeAnUpload(c *gin.Context) {
 	const op = "uploadserver.ServeAnUpload()"
 	// client may supply a session ID in its cookies.
 	// Session ID is given to one file upload session.
-	strSessionID, errNoID := c.Cookie(liteimp.KeysessionID)
+	strSessionID, errNoSessionIDCookie := c.Cookie(liteimp.KeysessionID)
 
 	loginInURL := c.Param("login")
 	// c gin.Context may hold a user already.
 	_, userChecked := c.Get(gin.AuthUserKey)
+
+	// TODO(zavla): do not allow anonymous uploads anymore
 
 	if loginInURL != "" && !userChecked {
 		log.Println(logline(c, fmt.Sprintf("context has no value with key %s", gin.AuthUserKey)))
@@ -374,15 +378,56 @@ func ServeAnUpload(c *gin.Context) {
 	// no body means no file, but we respond to client with X-ProvePeerHasTheRightPasswordHash
 	lcontentstr := c.GetHeader("Content-Length")
 	lcontent, err := strconv.ParseInt(lcontentstr, 10, 64)
-	if lcontent == 0 || err != nil {
-		c.JSON(http.StatusLengthRequired,
-			gin.H{"error": Error.ToUser(op, errContentHeaderRequired, "Service expects a file in request body.").Error()})
-		return // client should make a new request
+	if err != nil {
+		lcontent = 0
 	}
+	// if lcontent == 0 || err != nil {
+	// 	c.JSON(http.StatusLengthRequired,
+	// 		gin.H{"error": Error.ToUser(op, errContentHeaderRequired, "Service expects a file in request body.").Error()})
+	// 	return // client should make a new request
+	// }
 
-	if errNoID != nil || strSessionID == "" {
+	// Here a user is when it has logined in.
+
+	if errNoSessionIDCookie != nil || strSessionID == "" || lcontent == 0 {
 		// Here we have no previous session ID. Only new files expected from client.
+		// This response also sends a X-ProvePeerHasTheRightPasswordHash prove to the client.
 
+		userquery, err := getUserquery(c)
+		if err != nil {
+			return // we dont create a session
+		}
+
+		// sync.Map to prevent uploading the same file in parallel.
+		// usedfiles is global for this service.
+		lockobject := filepath.Join(userquery.username, userquery.fullpath)
+		_, loaded := usedfiles.LoadOrStore(lockobject, true) // equal to ReadOrStore
+		if loaded {
+			// file is already busy at the moment
+			c.JSON(http.StatusForbidden,
+				gin.H{"error": Error.ToUser(op, errRequestedFileIsBusy, userquery.fullpath).Error()})
+			return
+		}
+		defer usedfiles.Delete(lockobject) // clears sync.Map after this func exits.
+
+		// Get a struct with the file current size and state.
+		// File may be partially uploaded.
+		// MayUpload returns info about existing file.
+
+		whatIsInFile, err := fsdriver.MayUpload(userquery.storagepath, userquery.name, userquery.nameNotComplete)
+		if err != nil {
+
+			log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", lockobject)))
+
+			c.JSON(http.StatusForbidden,
+				gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, userquery.fullpath).Error()})
+
+			return
+
+		}
+		// here we allow upload!
+
+		// We set a cookie , next request from with client will come with this session cookie.
 		// Generate new cookie that represents session number for current file upload. New file means new ID.
 		newsessionID := uuid.New().String()
 		log.Println(logline(c, fmt.Sprintf("new session ID %s", newsessionID)))
@@ -395,10 +440,23 @@ func ServeAnUpload(c *gin.Context) {
 		// c holds in its Context a session ID in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
 
-		requestedAnUpload(c, newsessionID) // recieves new files only. Doesn't reqiere special client.
+		// Fill a package level variable, a map, to hold clients' state.
+		clientsstates = make(map[string]stateOfFileUpload)
 
-	} else {
-		// load current client session state
+		clientsstates[newsessionID] = stateOfFileUpload{
+			userquery: userquery,
+			good:      true,
+			// name:       name,
+			// path:       storagepath,
+			filestatus: *convertFileStateToJSONFileStatus(whatIsInFile),
+		}
+		c.Request.Body.Close() // try to free a connection because client may be sending a big file?
+		c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
+
+		//requestedAnUpload(c, newsessionID) // recieves new files only. Doesn't reqiere special client.
+
+	} else { // a client has send a session cookie
+		// lets find current client session state by session cookie
 		if state, found := clientsstates[strSessionID]; found {
 
 			if state.good {
@@ -408,21 +466,20 @@ func ServeAnUpload(c *gin.Context) {
 				c.Set(liteimp.KeysessionID, strSessionID)
 
 				requestedAnUploadContinueUpload(c, state, lcontent) // continue upload
-				return
 			}
+			return
 
 		}
-		retErr := Error.ToUser(op, errSessionEnded, "session deleted "+strSessionID)
+
+		// next delete a client's session
+		retErr := Error.ToUser(op, errSessionEnded, "now such session "+strSessionID)
 		log.Println(logline(c, retErr.Error()))
-		// stale state, we clear clientsstates map for this session
-		delete(clientsstates, strSessionID) // delete is no-op when key not found
 		// we set cookie in response header. -1 == delete cookie now.
-		c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true)
+		c.SetCookie(liteimp.KeysessionID, strSessionID, -1, "/upload", "", http.SameSiteStrictMode, false, true)
+
 		// we set cookie in current context.
 		c.Set(liteimp.KeysessionID, "")
 		// a user remains Authanticated, only a session ID cookie is cleared.
-
-		//TODO(zavla): HOW to use internationalization???
 
 		c.JSON(http.StatusBadRequest,
 			gin.H{"error": retErr.Error()})
@@ -437,21 +494,21 @@ func ServeAnUpload(c *gin.Context) {
 // correspondend to server's state of the file.
 func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUpload, lcontent int64) {
 	const op = "uploadserver.requestedAnUploadContinueUpload()"
-	name := savedstate.name
-	storagepath := savedstate.path
+	//name := savedstate.name
+	//storagepath := savedstate.storagepath
 	// we extract session ID from context.
 	strSessionID := c.GetString(liteimp.KeysessionID)
 
 	// Uses sync.Map to prevent uploading the same file in concurrent http handlers.
 	// usedfiles is global for http server.
-	_, loaded := usedfiles.LoadOrStore(name, true) // equals to ReadOrStore
+	_, loaded := usedfiles.LoadOrStore(savedstate.name, true) // equals to ReadOrStore
 	if loaded {
 		// file is already busy at the moment
-		c.JSON(http.StatusForbidden, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, name)})
+		c.JSON(http.StatusForbidden, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, savedstate.name)})
 		return
 	}
 	// clears sync.Map after this func exits.
-	defer usedfiles.Delete(name)
+	defer usedfiles.Delete(savedstate.name)
 
 	// Creates reciever channel to hold read bytes in this connection.
 	// Bytes from chReciever will be written to file.
@@ -462,16 +519,16 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 	// Prevents another client update content of the file in between our requests.
 	// Gets a struct with the file current size and state.
-	nameNotComplete := name + ".part"
-	whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name, nameNotComplete)
+	//nameNotComplete := name + ".part"
+	whatIsInFile, err := fsdriver.MayUpload(savedstate.storagepath, savedstate.name, savedstate.nameNotComplete)
 	if err != nil {
 		// Here err!=nil means upload is now allowed
 		delete(clientsstates, strSessionID)
 
 		// c.Error(err)
-		log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", name)))
+		log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", savedstate.name)))
 
-		c.JSON(http.StatusForbidden, gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, name).Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, savedstate.name).Error()})
 		return
 
 	}
@@ -487,14 +544,39 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		helpmessage := "service expects from you JSON " + string(jsonbytes)
 		//
-		c.SetCookie(liteimp.KeysessionID, "", 300, "", "", http.SameSiteStrictMode, false, true) // clear cookie
+		c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": Error.ToUser(op, errClientRequestShouldBindToJSON, helpmessage).Error()})
 		return
+	}
+	if whatIsInFile.Startoffset == 0 { // Startoffset == 0 means such file is not exist yet.
+
+		// Expects from client a file length if this is a new file.
+		// But client has passed the authorization, so we add him to the clientsstates map.
+		// Client doesn't send file at once, it waits from server a httpDigestAuthentication.KeyProvePeerHasRightPasswordhash header.
+
+		// A new file to upload, no need for json in request.
+		var sha1fromclient []byte
+		if savedstate.strsha1 != "" {
+			sha1fromclient = make([]byte, hex.DecodedLen(len(savedstate.strsha1)))
+			_, err := hex.Decode(sha1fromclient, []byte(savedstate.strsha1))
+			if err != nil {
+				log.Println(logline(c, fmt.Sprintf("string representation of sha1 %s is invalid", savedstate.strsha1)))
+			}
+		}
+		// next create and fill a header of new journal file
+
+		err := fsdriver.CreateNewPartialJournalFile(savedstate.storagepath, savedstate.nameNotComplete, fromClient.Count, sha1fromclient)
+		if err != nil {
+			log.Println(logline(c, err.Error()))
+			c.JSON(http.StatusInternalServerError,
+				gin.H{"error": Error.ToUser(op, errInternalServiceError, "").Error()})
+			return
+		}
 	}
 
 	if fromClient.Startoffset == whatIsInFile.Startoffset {
 		// DEBUG !!!
-		log.Printf("%s : lcontent is %d", op, lcontent)
+		//log.Printf("%s : lcontent is %d", op, lcontent)
 		// select {
 		// case _, ok := <-chReciever:
 		// 	log.Printf("chReciever is %v", ok)
@@ -504,8 +586,8 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
 			chReciever,
 			chWriteResult,
-			storagepath,
-			nameNotComplete,
+			savedstate.storagepath,
+			savedstate.nameNotComplete,
 			fsdriver.JournalRecord{Startoffset: fromClient.Startoffset, Count: fromClient.Count})
 		if errreciver != nil || writeresult.err != nil ||
 			(whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize {
@@ -517,16 +599,16 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			// OR recieved bytea are not the exact end of file
 
 			// update state of the file after failed upload
-			whatIsInFile, err := fsdriver.MayUpload(savedstate.path, name, nameNotComplete)
+			whatIsInFile, err := fsdriver.MayUpload(savedstate.storagepath, savedstate.name, savedstate.nameNotComplete)
 			if err != nil {
 				// Here err!=nil means upload is now allowed
 
 				delete(clientsstates, strSessionID)
-
+				c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true) // clear cookie
 				// c.Error(err)
-				log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", name)))
+				log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", savedstate.name)))
 
-				c.JSON(http.StatusForbidden, gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, name).Error()})
+				c.JSON(http.StatusForbidden, gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, savedstate.name).Error()})
 				return
 
 			}
@@ -540,9 +622,9 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 		// SUCCESS!!!
 		// Next check fact sha1 with expected sha1 if it was given.
-		factsha1, err := fsdriver.GetFileSha1(storagepath, nameNotComplete)
+		factsha1, err := fsdriver.GetFileSha1(savedstate.storagepath, savedstate.nameNotComplete)
 		if err != nil {
-			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", nameNotComplete, err)))
+			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", savedstate.nameNotComplete, err)))
 		}
 		wantsha1 := whatIsInFile.Sha1
 		if !bytes.Equal(wantsha1, emptysha1[:]) {
@@ -558,11 +640,11 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 		// Rename journal file. Add string representaion of sha1 to the journal filename.
 
-		err = eventOnSuccess(c, storagepath, name, nameNotComplete, factsha1)
+		err = eventOnSuccess(c, savedstate.storagepath, savedstate.name, savedstate.nameNotComplete, factsha1)
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 		}
-		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", name)))
+		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", savedstate.name)))
 
 		c.JSON(http.StatusAccepted, gin.H{"error": liteimp.ErrSuccessfullUpload})
 		return
@@ -580,23 +662,31 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	return
 }
 
-// requestedAnUpload checks request params and recieves a new file.
-// If file already exists requestAnUpload responds with a json liteimp.JsonFileStatus.
-// We expect the client to do one more request with the rest of the file.
-func requestedAnUpload(c *gin.Context, strSessionID string) {
-	const op = "uploadserver.requestedAnUpload()"
+type userquery struct {
+	fullpath        string
+	name            string
+	username        string
+	storagepath     string
+	strsha1         string
+	nameNotComplete string
+}
+
+func getUserquery(c *gin.Context) (userquery, error) {
+	const op = "uploadserver.firstActionOnRequest()"
+	errStopwork := errors.New("StopWork")
+
 	var req liteimp.RequestForUpload
 	err := c.ShouldBindQuery(&req)
 	if err != nil {
 		// no parameter &filename
 		c.JSON(http.StatusBadRequest,
 			gin.H{"error": Error.ToUser(op, errWrongURLParameters, `Example: curl.exe -X POST http://127.0.0.1:64000/upload?&filename="sendfile.rar" -T .\sendfile.rar`).Error()})
-		return // http request ends, wrong URL.
+		return userquery{}, errStopwork // http request ends, wrong URL.
 	}
 	if req.Filename == "" {
 		c.JSON(http.StatusBadRequest,
 			gin.H{"error": Error.ToUser(op, errWrongURLParameters, Error.I18text("Expected URL parameter &filename")).Error()})
-		return
+		return userquery{}, errStopwork
 	}
 
 	// A filename may be from another OS: c:\windows\filename, \\?\c:\windows, \filename, /filename, \\computer\dir\filename, /../../filename.
@@ -604,7 +694,7 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 	if validatefilepath(req.Filename, constmaxpath) != nil {
 		c.JSON(http.StatusBadRequest,
 			gin.H{"error": Error.ToUser(op, errPathError, Error.I18text(`you specified a wrong path in parameter 'filename' %s`, req.Filename)).Error()})
-		return
+		return userquery{}, errStopwork
 	}
 	fullpath := filepath.Clean(req.Filename) // work about ../../
 
@@ -617,159 +707,215 @@ func requestedAnUpload(c *gin.Context, strSessionID string) {
 		log.Println(logline(c, fmt.Sprintf("can't create storage root directory: %s", err)))
 		c.JSON(http.StatusInternalServerError,
 			gin.H{"error": Error.ToUser(op, Error.ErrFileIO, Error.I18text(`service can't create root storage directory.`)).Error()})
-		return
+		return userquery{}, errStopwork
 	}
 	username := c.GetString(gin.AuthUserKey) // used in sync.Map usedfiles.
 	if username == "" {
 		// anonymous users are not allowed to upload to a full path of the file.
 		fullpath = name
 	}
-
-	// sync.Map to prevent uploading the same file in parallel.
-	// usedfiles is global for this service.
-	lockobject := filepath.Join(username, fullpath)
-	_, loaded := usedfiles.LoadOrStore(lockobject, true) // equal to ReadOrStore
-	if loaded {
-		// file is already busy at the moment
-		c.JSON(http.StatusForbidden,
-			gin.H{"error": Error.ToUser(op, errRequestedFileIsBusy, fullpath).Error()})
-		return
-	}
-	defer usedfiles.Delete(lockobject) // clears sync.Map after this func exits.
-
-	// Get a struct with the file current size and state.
-	// File may be partially uploaded.
-	// MayUpload returns info about existing file.
-	nameNotComplete := name + ".part"
-	whatIsInFile, err := fsdriver.MayUpload(storagepath, name, nameNotComplete)
-	if err != nil {
-		// c.Error(err)
-
-		delete(clientsstates, strSessionID)
-
-		log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", lockobject)))
-
-		c.JSON(http.StatusForbidden,
-			gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, fullpath).Error()})
-
-		return
-
-	}
-	// here we allow upload!
 	strsha1 := c.GetHeader("Sha1") // unnecessary file checksum.
+	return userquery{
+		fullpath:        fullpath,
+		storagepath:     storagepath,
+		name:            name,
+		username:        username,
+		strsha1:         strsha1,
+		nameNotComplete: name + ".part",
+	}, nil
+}
 
-	// create a map to hold clients state.
-	clientsstates = make(map[string]stateOfFileUpload)
+// requestedAnUpload checks request params and recieves a new file.
+// If file already exists requestAnUpload responds with a json liteimp.JsonFileStatus.
+// We expect the client to do one more request with the rest of the file.
+func requestedAnUpload(c *gin.Context, strSessionID string) {
+	const op = "uploadserver.requestedAnUpload()"
+	// var req liteimp.RequestForUpload
+	// err := c.ShouldBindQuery(&req)
+	// if err != nil {
+	// 	// no parameter &filename
+	// 	c.JSON(http.StatusBadRequest,
+	// 		gin.H{"error": Error.ToUser(op, errWrongURLParameters, `Example: curl.exe -X POST http://127.0.0.1:64000/upload?&filename="sendfile.rar" -T .\sendfile.rar`).Error()})
+	// 	return // http request ends, wrong URL.
+	// }
+	// if req.Filename == "" {
+	// 	c.JSON(http.StatusBadRequest,
+	// 		gin.H{"error": Error.ToUser(op, errWrongURLParameters, Error.I18text("Expected URL parameter &filename")).Error()})
+	// 	return
+	// }
 
-	clientsstates[strSessionID] = stateOfFileUpload{
-		good:       true,
-		name:       name,
-		path:       storagepath,
-		filestatus: *convertFileStateToJSONFileStatus(whatIsInFile),
-	}
+	// // A filename may be from another OS: c:\windows\filename, \\?\c:\windows, \filename, /filename, \\computer\dir\filename, /../../filename.
+	// // Validate user supplied input.
+	// if validatefilepath(req.Filename, constmaxpath) != nil {
+	// 	c.JSON(http.StatusBadRequest,
+	// 		gin.H{"error": Error.ToUser(op, errPathError, Error.I18text(`you specified a wrong path in parameter 'filename' %s`, req.Filename)).Error()})
+	// 	return
+	// }
+	// fullpath := filepath.Clean(req.Filename) // work about ../../
 
-	// Expects from client a file length if this is a new file.
-	// But client has passed the authorization, so we add him to the clientsstates map.
-	// Client doesn't send file at once, it waits from server a httpDigestAuthentication.KeyProvePeerHasRightPasswordhash header.
+	// name := filepath.Base(fullpath) // drop the path part from user supplied input
 
-	lcontentstr := c.GetHeader("Content-Length")
-	lcontent := int64(0)
-	if lcontentstr != "" {
-		lcontent, err = strconv.ParseInt(lcontentstr, 10, 64)
-		if lcontent == 0 || err != nil {
-			c.JSON(http.StatusLengthRequired,
-				gin.H{"error": Error.ToUser(op, errContentHeaderRequired, Error.I18text(`Content-Length header required`)).Error()})
-			return // client should make a new request
-		}
-	}
+	// storagepath := GetPathWhereToStore(c)
+	// // storagepath must exist. mkdirAll will create all the path.
+	// err = os.MkdirAll(storagepath, 0700)
+	// if err != nil {
+	// 	log.Println(logline(c, fmt.Sprintf("can't create storage root directory: %s", err)))
+	// 	c.JSON(http.StatusInternalServerError,
+	// 		gin.H{"error": Error.ToUser(op, Error.ErrFileIO, Error.I18text(`service can't create root storage directory.`)).Error()})
+	// 	return
+	// }
+	// username := c.GetString(gin.AuthUserKey) // used in sync.Map usedfiles.
+	// if username == "" {
+	// 	// anonymous users are not allowed to upload to a full path of the file.
+	// 	fullpath = name
+	// }
 
-	// Create recieve channel to write bytes for this connection.
-	// chReciever expects bytes from io.Reader to be written to file.
-	chReciever := make(chan []byte, 2)
-	// chWriteResult is used to send result of WriteChanneltoDisk goroutine.
-	chWriteResult := make(chan writeresult)
+	// // sync.Map to prevent uploading the same file in parallel.
+	// // usedfiles is global for this service.
+	// lockobject := filepath.Join(username, fullpath)
+	// _, loaded := usedfiles.LoadOrStore(lockobject, true) // equal to ReadOrStore
+	// if loaded {
+	// 	// file is already busy at the moment
+	// 	c.JSON(http.StatusForbidden,
+	// 		gin.H{"error": Error.ToUser(op, errRequestedFileIsBusy, fullpath).Error()})
+	// 	return
+	// }
+	// defer usedfiles.Delete(lockobject) // clears sync.Map after this func exits.
 
-	if whatIsInFile.Startoffset == 0 { // Startoffset == 0 means such file is not exist yet.
-		// A new file to upload, no need for json in request.
-		var sha1fromclient []byte
-		if strsha1 != "" {
-			sha1fromclient = make([]byte, hex.DecodedLen(len(strsha1)))
-			_, err := hex.Decode(sha1fromclient, []byte(strsha1))
-			if err != nil {
-				log.Println(logline(c, fmt.Sprintf("string representation of sha1 %s is invalid", strsha1)))
-			}
-		}
-		// next fill a header of journal file
+	// // Get a struct with the file current size and state.
+	// // File may be partially uploaded.
+	// // MayUpload returns info about existing file.
+	// nameNotComplete := name + ".part"
+	// whatIsInFile, err := fsdriver.MayUpload(storagepath, name, nameNotComplete)
+	// if err != nil {
+	// 	// c.Error(err)
 
-		err := fsdriver.CreateNewPartialJournalFile(storagepath, nameNotComplete, lcontent, sha1fromclient)
-		if err != nil {
-			log.Println(logline(c, err.Error()))
-			c.JSON(http.StatusInternalServerError,
-				gin.H{"error": Error.ToUser(op, errInternalServiceError, "").Error()})
-			return
-		}
-		// MAIN work:
-		// recieve bytes and put them to channel for write;
-		// read from this write channel and write to disk;
-		// wait for end of write operation.
-		writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
-			chReciever,
-			chWriteResult,
-			storagepath,
-			nameNotComplete,
-			fsdriver.JournalRecord{Count: lcontent, Startoffset: 0}) // blocks current Goroutine
+	// 	delete(clientsstates, strSessionID)
 
-		if errreciver != nil || writeresult.err != nil { // reciver OR write failed
-			// server failed to write all the bytes
-			if errreciver != nil {
-				log.Println(logline(c, errreciver.Error()))
-				c.Error(errreciver)
-			} //log error
-			if writeresult.err != nil {
-				log.Println(logline(c, writeresult.err.Error()))
-				c.Error(writeresult.err)
-			}
-			// updqate client state
-			ptrstate := clientsstates[strSessionID]
-			ptrstate.filestatus.Startoffset = writeresult.count
+	// 	log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", lockobject)))
 
-			c.JSON(http.StatusExpectationFailed,
-				gin.H{"error": Error.ToUser(op, errServerFailToWriteAllbytes, Error.I18text(`service has written %d bytes, but expected number of bytes was %d bytes.`, writeresult.count, lcontent)).Error()})
-			return
-		}
+	// 	c.JSON(http.StatusForbidden,
+	// 		gin.H{"error": Error.ToUser(op, liteimp.ErrUploadIsNotAllowed, fullpath).Error()})
 
-		// Next we try to check sha1.
-		factsha1, err := fsdriver.GetFileSha1(storagepath, nameNotComplete)
-		if sha1fromclient != nil {
-			// There was a sha1 from client, we may check correctness now.
+	// 	return
 
-			if !bytes.Equal(factsha1, sha1fromclient) {
-				// sha1 differs!!!
-				// TODO(zavla): needs more sofisticated algorithm to repare file.
-				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", sha1fromclient, factsha1)))
-				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "").Error()})
-				return
-			}
-		}
+	// }
+	// here we allow upload!
+	//strsha1 := c.GetHeader("Sha1") // unnecessary file checksum.
 
-		//SUCCESS!!!
-		err = eventOnSuccess(c, storagepath, name, nameNotComplete, factsha1)
-		if err != nil {
-			log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
-		}
-		log.Println(logline(c, fmt.Sprintf("successfull upload: %s", lockobject)))
-		c.JSON(http.StatusAccepted, gin.H{"error": Error.ToUser(op, liteimp.ErrSuccessfullUpload, "").Error()})
-		return
+	// // create a map to hold clients state.
+	// clientsstates = make(map[string]stateOfFileUpload)
 
-	}
+	// clientsstates[strSessionID] = stateOfFileUpload{
+	// 	good:       true,
+	// 	name:       name,
+	// 	path:       storagepath,
+	// 	filestatus: *convertFileStateToJSONFileStatus(whatIsInFile),
+	// }
 
-	// Here we are when uploaded file already exist.
-	// We respond with a json with expected offsett and file size.
+	// // Create recieve channel to write bytes for this connection.
+	// // chReciever expects bytes from io.Reader to be written to file.
+	// chReciever := make(chan []byte, 2)
+	// // chWriteResult is used to send result of WriteChanneltoDisk goroutine.
+	// chWriteResult := make(chan writeresult)
 
-	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
+	// if whatIsInFile.Startoffset == 0 { // Startoffset == 0 means such file is not exist yet.
 
-	// We expect the client to do one more request with the rest of the file.
-	// Session State is saved in a map, session key (liteimp.KeysessionID) is in cookie.
+	// 	// Expects from client a file length if this is a new file.
+	// 	// But client has passed the authorization, so we add him to the clientsstates map.
+	// 	// Client doesn't send file at once, it waits from server a httpDigestAuthentication.KeyProvePeerHasRightPasswordhash header.
+
+	// 	lcontentstr := c.GetHeader("Content-Length")
+	// 	lcontent := int64(0)
+	// 	if lcontentstr != "" {
+	// 		lcontent, err = strconv.ParseInt(lcontentstr, 10, 64)
+	// 		if lcontent == 0 || err != nil {
+	// 			c.JSON(http.StatusLengthRequired,
+	// 				gin.H{"error": Error.ToUser(op, errContentHeaderRequired, Error.I18text(`Content-Length header required`)).Error()})
+	// 			return // client should make a new request
+	// 		}
+	// 	}
+
+	// 	// A new file to upload, no need for json in request.
+	// 	var sha1fromclient []byte
+	// 	if strsha1 != "" {
+	// 		sha1fromclient = make([]byte, hex.DecodedLen(len(strsha1)))
+	// 		_, err := hex.Decode(sha1fromclient, []byte(strsha1))
+	// 		if err != nil {
+	// 			log.Println(logline(c, fmt.Sprintf("string representation of sha1 %s is invalid", strsha1)))
+	// 		}
+	// 	}
+	// 	// next fill a header of journal file
+
+	// 	err := fsdriver.CreateNewPartialJournalFile(storagepath, nameNotComplete, lcontent, sha1fromclient)
+	// 	if err != nil {
+	// 		log.Println(logline(c, err.Error()))
+	// 		c.JSON(http.StatusInternalServerError,
+	// 			gin.H{"error": Error.ToUser(op, errInternalServiceError, "").Error()})
+	// 		return
+	// 	}
+	// 	// MAIN work:
+	// 	// recieve bytes and put them to channel for write;
+	// 	// read from this write channel and write to disk;
+	// 	// wait for end of write operation.
+	// 	writeresult, errreciver := startWriteStartRecieveAndWait(c, c.Request.Body,
+	// 		chReciever,
+	// 		chWriteResult,
+	// 		storagepath,
+	// 		nameNotComplete,
+	// 		fsdriver.JournalRecord{Count: lcontent, Startoffset: 0}) // blocks current Goroutine
+
+	// 	if errreciver != nil || writeresult.err != nil { // reciver OR write failed
+	// 		// server failed to write all the bytes
+	// 		if errreciver != nil {
+	// 			log.Println(logline(c, errreciver.Error()))
+	// 			c.Error(errreciver)
+	// 		} //log error
+	// 		if writeresult.err != nil {
+	// 			log.Println(logline(c, writeresult.err.Error()))
+	// 			c.Error(writeresult.err)
+	// 		}
+	// 		// updqate client state
+	// 		ptrstate := clientsstates[strSessionID]
+	// 		ptrstate.filestatus.Startoffset = writeresult.count
+
+	// 		c.JSON(http.StatusExpectationFailed,
+	// 			gin.H{"error": Error.ToUser(op, errServerFailToWriteAllbytes, Error.I18text(`service has written %d bytes, but expected number of bytes was %d bytes.`, writeresult.count, lcontent)).Error()})
+	// 		return
+	// 	}
+
+	// 	// Next we try to check sha1.
+	// 	factsha1, err := fsdriver.GetFileSha1(storagepath, nameNotComplete)
+	// 	if sha1fromclient != nil {
+	// 		// There was a sha1 from client, we may check correctness now.
+
+	// 		if !bytes.Equal(factsha1, sha1fromclient) {
+	// 			// sha1 differs!!!
+	// 			// TODO(zavla): needs more sofisticated algorithm to repare file.
+	// 			log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", sha1fromclient, factsha1)))
+	// 			c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "").Error()})
+	// 			return
+	// 		}
+	// 	}
+
+	// 	//SUCCESS!!!
+	// 	err = eventOnSuccess(c, storagepath, name, nameNotComplete, factsha1)
+	// 	if err != nil {
+	// 		log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
+	// 	}
+	// 	log.Println(logline(c, fmt.Sprintf("successfull upload: %s", lockobject)))
+	// 	c.JSON(http.StatusAccepted, gin.H{"error": Error.ToUser(op, liteimp.ErrSuccessfullUpload, "").Error()})
+	// 	return
+
+	// }
+
+	// // Here we are when uploaded file already exist.
+	// // We respond with a json with expected offsett and file size.
+	// c.Request.Body.Close() // try to free a connection because client is sending a big file
+	// c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
+
+	// // We expect the client to do one more request with the rest of the file.
+	// // Session State is saved in a map, session key (liteimp.KeysessionID) is in cookie.
 
 }
 
