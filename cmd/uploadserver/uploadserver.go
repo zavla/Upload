@@ -256,24 +256,42 @@ func runHTTPserver(config uploadserver.Config) {
 	loginsMap := loginsToMap(loginsstruct)
 	// load certs
 	var tlsConfig *tls.Config
-	certFile := filepath.Join(config.Configdir, "upload.pem")
-	keyFile := filepath.Join(config.Configdir, "upload-key.pem")
-	_, errCertPub := os.Stat(certFile)
-	_, errCertKey := os.Stat(keyFile)
-	if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
-		log.Printf("Service didn't found files with certificates: %s, %s", certFile, keyFile)
+	ipS1 := strings.Split(config.BindAddress, ":")[0]
+	if !existPemFiles(config.Configdir, ipS1) {
+		log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS1, ipS1)
 		os.Exit(1)
 		return
 	}
-	if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
-		certUpload, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			log.Printf("Certificate files have error: %s", err)
+
+	certFile := filepath.Join(config.Configdir, ipS1+".pem")
+	keyFile := filepath.Join(config.Configdir, ipS1+"-key.pem")
+	// _, errCertPub := os.Stat(certFile)
+	// _, errCertKey := os.Stat(keyFile)
+	// if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
+	// 	log.Printf("Service didn't found files with certificates: %s, %s", certFile, keyFile)
+	// 	os.Exit(1)
+	// 	return
+	// }
+	ipS2 := strings.Split(config.BindAddress2, ":")[0]
+	certFile2 := filepath.Join(config.Configdir, ipS2+".pem")
+	keyFile2 := filepath.Join(config.Configdir, ipS2+"-key.pem")
+	if config.BindAddress2 != "" {
+		if !existPemFiles(config.Configdir, ipS2) {
+			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS2, ipS2)
+			os.Exit(1)
 			return
+
 		}
-		tlsConfig = new(tls.Config)
-		tlsConfig.Certificates = []tls.Certificate{certUpload}
 	}
+	// if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
+	// 	certUpload, err := tls.LoadX509KeyPair(certFile, keyFile)
+	// 	if err != nil {
+	// 		log.Printf("Certificate files have error: %s", err)
+	// 		return
+	// 	}
+	// 	tlsConfig = new(tls.Config)
+	// 	tlsConfig.Certificates = []tls.Certificate{certUpload}
+	// }
 	// gin specifics
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
@@ -339,11 +357,11 @@ func runHTTPserver(config uploadserver.Config) {
 			//MaxHeaderBytes: 1000,
 		}
 
-		if tlsConfig == nil {
-			err = s.ListenAndServe()
-		} else {
-			err = s.ListenAndServeTLS(certFile, keyFile)
+		err = s.ListenAndServeTLS(certFile, keyFile)
+		if err != http.ErrServerClosed { // expects error
+			log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 		}
+
 	}
 	S2 := func() {
 		s := &http.Server{
@@ -360,11 +378,12 @@ func runHTTPserver(config uploadserver.Config) {
 			//MaxHeaderBytes: 1000,
 		}
 
-		if tlsConfig == nil {
-			err = s.ListenAndServe()
-		} else {
-			err = s.ListenAndServeTLS(certFile, keyFile)
+		err = s.ListenAndServeTLS(certFile2, keyFile2)
+
+		if err != http.ErrServerClosed { // expects error
+			log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 		}
+
 	}
 
 	go S1()
@@ -372,8 +391,16 @@ func runHTTPserver(config uploadserver.Config) {
 		S2()
 	}
 
-	if err != http.ErrServerClosed { // expects error
-		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
-	}
+}
+func existPemFiles(path string, bindAddress string) bool {
 
+	ipS := strings.Split(bindAddress, ":")[0]
+	certFile := filepath.Join(path, ipS+".pem")
+	keyFile := filepath.Join(path, ipS+"-key.pem")
+	_, errCertPub := os.Stat(certFile)
+	_, errCertKey := os.Stat(keyFile)
+	if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
+		return false
+	}
+	return true
 }
