@@ -1,25 +1,19 @@
-<!DOCTYPE html>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
 <html>
-    <style >
-        .table {
-            color:grey
-        }
-        span.cleft {
-            min-width: 50%;
-            max-width: 70%;
-            float: left;
-        }
-        span.cright {
-            width: 4em;
-            
-        }
-    </style>
-    <body>
-        <div class="table">
-            {{range .}}
-            <span class="cleft"><a href="/download/{{.Name}}">{{.Name}}</a></span>
-            <span class="cright"><p class="line">{{.Size}}</p></span>
-            {{end}}
-        </div>
-    </body>
-</html>
+ <head>
+  <title>Index of {{.Path}}</title>
+ </head>
+ <body>
+{{$path := .Path}}
+<h1>Index of {{.Path}}</h1>
+  <table>
+   <tr><th valign="top"><img src="/icons/blank.gif" alt="[ICO]"></th><th><a href="">Name</a></th><th><a href="">Last modified</a></th><th><a href="">Size</a></th><th><a href="">Description</a></th></tr>
+   <tr><th colspan="5"><hr></th></tr>
+<tr><td valign="top"><img src="/icons/back.gif" alt="[PARENTDIR]"></td><td><a href="/{{.Parent}}">Parent Directory</a></td><td>&nbsp;</td><td align="right">  - </td><td>&nbsp;</td></tr>
+{{range $el := .Files}}
+<tr><td valign="top"><img src="/icons/hand.right.gif" alt="[   ]"></td><td><a href="/{{$path}}/{{$el.Name}}">{{$el.Name}}</a></td><td align="right">{{$el.Date}}  </td><td align="right">{{$el.Size}} </td><td>&nbsp;</td></tr>
+{{end}}
+   <tr><th colspan="5"><hr></th></tr>
+</table>
+<address>zavla</address>
+</body></html>

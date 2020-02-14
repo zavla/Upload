@@ -33,3 +33,5 @@ cmd/uploader/logins.json
 cmd/uploadserver/logins.json
 cmd/uploader/logins.json
 *.pem
+cmd/uploadserver/htmltemplates/_filelist.html
+cert.list

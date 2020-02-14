@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	Error "upload/errstr"
 	"upload/httpDigestAuthentication"
 	"upload/logins"
@@ -31,16 +32,18 @@ func main() {
 	// It is used to store passwords hashes in a file.
 
 	var ( // command line flags
-		bindToAddress string
-		storageroot   string
-		configdir     string
-		asService     bool
-		logname       string
+		bindToAddress  string
+		bindToAddress2 string
+		storageroot    string
+		configdir      string
+		asService      bool
+		logname        string
 	)
 	const op = "uploadserver.main()"
 	paramLogname := flag.String("log", "", "log `file` name.")
 	paramStorageroot := flag.String("root", "", "storage root `path` for files (required).")
 	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified `address:port`.")
+	flag.StringVar(&bindToAddress2, "listenOn2", "", "listens on specified `address:port`.")
 	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
 	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon).")
 	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
@@ -119,6 +122,9 @@ func main() {
 	defer froot.Close()
 
 	uploadserver.ConfigThisService.BindAddress = bindToAddress
+	if bindToAddress2 != "" {
+		uploadserver.ConfigThisService.BindAddress2 = bindToAddress2
+	}
 	uploadserver.ConfigThisService.Storageroot = storageroot
 
 	// where we started from?
@@ -254,6 +260,11 @@ func runHTTPserver(config uploadserver.Config) {
 	keyFile := filepath.Join(config.Configdir, "upload-key.pem")
 	_, errCertPub := os.Stat(certFile)
 	_, errCertKey := os.Stat(keyFile)
+	if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
+		log.Printf("Service didn't found files with certificates: %s, %s", certFile, keyFile)
+		os.Exit(1)
+		return
+	}
 	if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
 		certUpload, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
@@ -266,19 +277,29 @@ func runHTTPserver(config uploadserver.Config) {
 	// gin specifics
 	router := gin.New()
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
-	router.Use(gin.LoggerWithWriter(config.Logwriter),
+	router.Use(gin.LoggerWithWriter(config.Logwriter,
+		"/icons/back.gif",
+		"/icons/blank.gif",
+		"/icons/hand.right.gif",
+		"/icons/unknown.gif",
+		"/favicon.ico",
+	),
 		gin.RecoveryWithWriter(config.Logwriter))
 
 	// Our authantication middleware. Gin executes this func for evey request.
 	router.Use(func(c *gin.Context) {
 		const op = "Login required."
+		if strings.HasPrefix(c.Request.RequestURI, "/icons") {
+			c.Next()
+			return
+		}
 		loginFromURL := c.Param("login")
 		if loginFromURL == "" && !config.AllowAnonymousUse {
 			c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"error": Error.ToUser(op, uploadserver.ErrAuthorizationFailed, "Service supports HTTP digest method. Specify a user name as a URL path. .../upload/usernamehere").Error()})
 
 			return
 		}
-		if loginFromURL != "" {
+		if loginFromURL != "" /*&& c.Request.Method != "GET"*/ {
 			loginCheck(c, loginsMap)
 		}
 		c.Next()
@@ -289,29 +310,68 @@ func runHTTPserver(config uploadserver.Config) {
 	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
 	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
 	// per user upload
-	router.Handle("GET", "/upload/:login", uploadserver.ServeAnUpload)
+	router.Handle("GET", "/icons/*path", func(c *gin.Context) {
+		p := `f:\Zavla_VB\go\src\upload\cmd\uploadserver\htmltemplates\icons\`
+		//config.RunningFromDir + "/htmltemplates/icons"
+		iserve := http.StripPrefix("/icons", http.FileServer(http.Dir(p)))
+
+		iserve.ServeHTTP(c.Writer, c.Request)
+	})
+	router.Handle("GET", "/upload/:login/*path", uploadserver.GetFileList)
+	router.Handle("GET", "/upload/:login", uploadserver.GetFileList)
+
 	router.Handle("POST", "/upload/:login", uploadserver.ServeAnUpload)
-	router.Handle("GET", "/upload/:login/list", uploadserver.GetFileList)
+	//router.Handle("GET", "/upload/:login/list", uploadserver.GetFileList)
 
 	//router.Run(bindToAddress)  timeouts needed
-	s := &http.Server{
-		Addr:      config.BindAddress,
-		Handler:   router,
-		TLSConfig: tlsConfig,
-		// 8 hours for big uploads, clients should retry after that.
-		// Anonymous uploads have no means to retry uploads.
-		ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
-		// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
-		WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
-		ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
-		IdleTimeout:       120 * time.Second,       // time for client to post a second request.
-		//MaxHeaderBytes: 1000,
+	S1 := func() {
+		s := &http.Server{
+			Addr:      config.BindAddress,
+			Handler:   router,
+			TLSConfig: tlsConfig,
+			// 8 hours for big uploads, clients should retry after that.
+			// Anonymous uploads have no means to retry uploads.
+			ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
+			// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
+			WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
+			ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
+			IdleTimeout:       120 * time.Second,       // time for client to post a second request.
+			//MaxHeaderBytes: 1000,
+		}
+
+		if tlsConfig == nil {
+			err = s.ListenAndServe()
+		} else {
+			err = s.ListenAndServeTLS(certFile, keyFile)
+		}
 	}
-	if tlsConfig == nil {
-		err = s.ListenAndServe()
-	} else {
-		err = s.ListenAndServeTLS(certFile, keyFile)
+	S2 := func() {
+		s := &http.Server{
+			Addr:      config.BindAddress2,
+			Handler:   router,
+			TLSConfig: tlsConfig,
+			// 8 hours for big uploads, clients should retry after that.
+			// Anonymous uploads have no means to retry uploads.
+			ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
+			// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
+			WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
+			ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
+			IdleTimeout:       120 * time.Second,       // time for client to post a second request.
+			//MaxHeaderBytes: 1000,
+		}
+
+		if tlsConfig == nil {
+			err = s.ListenAndServe()
+		} else {
+			err = s.ListenAndServeTLS(certFile, keyFile)
+		}
 	}
+
+	go S1()
+	if config.BindAddress2 != "" {
+		S2()
+	}
+
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 	}

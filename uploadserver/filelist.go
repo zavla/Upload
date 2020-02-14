@@ -6,24 +6,38 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"time"
 	"upload/liteimp"
 
 	"github.com/gin-gonic/gin"
 )
 
 type smallinf struct {
-	Name string
-	Size int64
+	Name     string
+	Size     int64
+	DateTime time.Time
+	Date     string
 }
 
 // GetFileList is a gin.HandlerFunc.
 // Returns a response with html page "list of files"
 func GetFileList(c *gin.Context) {
 	username := c.Param("login")
+	urlpath := c.Param("path")
+	if len(urlpath) == 0 {
+		urlpath += "/"
+	}
+	urlpathtousername := "upload/" + username
 
 	storagepath := GetPathWhereToStoreByUsername(username)
+	fullfspath := storagepath + urlpath
+	// if strings.Contains(fullfspath, `..`) {
+	// 	c.JSON(http.StatusBadRequest, gin.H{"error": "bad file path in URL."})
+	// 	return
+	// }
 
 	var listFilter liteimp.RequestForFileList
 	err := c.ShouldBindQuery(&listFilter)
@@ -43,7 +57,14 @@ func GetFileList(c *gin.Context) {
 		isnamefilter = true
 
 	}
-	nameslist := fillnameslist(storagepath, isnamefilter, reg)
+	stat, err := os.Stat(fullfspath)
+	if err != nil || !stat.IsDir() {
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Errorf("Can't download a file.").Error()})
+
+		return
+
+	}
+	nameslist := fillnameslist(fullfspath, isnamefilter, reg)
 	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filelist.html"))
 	if err != nil {
 		log.Printf("%s", err)
@@ -51,7 +72,18 @@ func GetFileList(c *gin.Context) {
 
 		return
 	}
-	err = tmpl.Execute(c.Writer, nameslist)
+	type topage struct {
+		Path   string
+		Files  []smallinf
+		Parent string
+	}
+	parent := path.Dir(urlpath)
+	vtopage := topage{
+		Path:   urlpathtousername + urlpath,
+		Files:  nameslist,
+		Parent: urlpathtousername + parent,
+	}
+	err = tmpl.Execute(c.Writer, vtopage)
 	if err != nil {
 		log.Printf("%s", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("html template failed to execute. : %s", err)})
@@ -67,8 +99,17 @@ func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []
 		if errinfile != nil {
 			return filepath.SkipDir
 		}
-		if info.IsDir() { //&& path == storagepath {
+		if info.IsDir() && path == storagepath {
 			return nil //next file
+		}
+		if info.IsDir() {
+			nameslist = append(nameslist, smallinf{
+				Name:     info.Name(),
+				Size:     info.Size(),
+				DateTime: info.ModTime(),
+				Date:     info.ModTime().Format(http.TimeFormat),
+			})
+			return filepath.SkipDir
 		}
 		if isnamefilter {
 			is := reg.FindString(path)
@@ -77,8 +118,10 @@ func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []
 			}
 		}
 		nameslist = append(nameslist, smallinf{
-			Name: info.Name(),
-			Size: info.Size(),
+			Name:     info.Name(),
+			Size:     info.Size(),
+			DateTime: info.ModTime(),
+			Date:     info.ModTime().Format(http.TimeFormat),
 		})
 		return nil
 	})

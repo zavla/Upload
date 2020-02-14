@@ -43,7 +43,8 @@ type Config struct {
 	Logwriter io.Writer
 	Configdir string
 	// BindAddress is an address of this service
-	BindAddress string
+	BindAddress  string
+	BindAddress2 string
 	// Storageroot holds path to file store for this instance.
 	// Must be absolute.
 	Storageroot string
