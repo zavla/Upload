@@ -46,7 +46,7 @@ func main() {
 	flag.Parse()
 	if len(os.Args[1:]) == 0 {
 		flag.PrintDefaults()
-		os.Exit(1)
+		os.Exit(2)
 		return
 	}
 	// check required parameters
@@ -54,12 +54,12 @@ func main() {
 
 	if *paramFile == "" && *paramDirtomonitor == "" {
 		log.Printf("-file or -dir must be specified.")
-		os.Exit(1)
+		os.Exit(3)
 		return
 	}
 	if *savepassword && *paramPasswordfile == "" {
 		log.Println("-passwordfile is not specified.")
-		os.Exit(1)
+		os.Exit(4)
 		return
 	}
 	// clean paths
@@ -96,10 +96,13 @@ func main() {
 		flog = os.Stdout
 	} else {
 		var err error
-		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE, os.ModeAppend)
-		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
-		os.Exit(1)
-		return
+		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0)
+		if err != nil {
+			log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
+			os.Exit(5)
+
+			return
+		}
 	}
 	// from hereafter use log for messages
 	log.SetOutput(flog)
