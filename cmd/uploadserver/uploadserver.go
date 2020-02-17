@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	Error "upload/errstr"
 	"upload/httpDigestAuthentication"
 	"upload/logins"
@@ -17,14 +18,13 @@ import (
 
 	//"encoding/base64"
 	"flag"
+	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -117,9 +117,12 @@ func main() {
 	froot, err := openStoragerootRw(storageroot)
 	if err != nil {
 		log.Printf("Can't start server, storageroot rw error: %s", err)
-		return
+
+		// let the service start, it will wait for the storageroot attachment
+	} else {
+
+		defer froot.Close()
 	}
-	defer froot.Close()
 
 	uploadserver.ConfigThisService.BindAddress = bindToAddress
 	if bindToAddress2 != "" {
@@ -144,7 +147,8 @@ func main() {
 		// It responds to Windows Service Control Manager on windows.
 		runsAsService(uploadserver.ConfigThisService)
 	} else {
-		runHTTPserver(uploadserver.ConfigThisService)
+		wa := &sync.WaitGroup{}
+		runHTTPserver(wa, uploadserver.ConfigThisService)
 	}
 
 	log.Println("uploadserver main() exited.")
@@ -241,9 +245,19 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	c.Set(gin.AuthUserKey, creds.Username) // grants a login
 	return                                 // normal exits and calls other handlers
 }
-
-func runHTTPserver(config uploadserver.Config) {
+func waitRunHTTPserver(config uploadserver.Config) {
+	wa := &sync.WaitGroup{}
+	for {
+		wa.Add(1)
+		go runHTTPserver(wa, config)
+		wa.Wait()
+		log.Printf("service is waiting 10sec to restart HTTP server")
+		time.Sleep(20 * time.Second)
+	}
+}
+func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 	const op = "cmd/uploadserver.runHTTPserver()"
+	defer wa.Done() // after exit WorkGroup will be done.
 	// reads logins passwords
 	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(config.Configdir, "logins.json"))
 	if config.Configdir != "" {
@@ -259,28 +273,20 @@ func runHTTPserver(config uploadserver.Config) {
 	ipS1 := strings.Split(config.BindAddress, ":")[0]
 	if !existPemFiles(config.Configdir, ipS1) {
 		log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS1, ipS1)
-		os.Exit(1)
+		// allow go routine to exit
 		return
 	}
-
 	certFile := filepath.Join(config.Configdir, ipS1+".pem")
 	keyFile := filepath.Join(config.Configdir, ipS1+"-key.pem")
-	// _, errCertPub := os.Stat(certFile)
-	// _, errCertKey := os.Stat(keyFile)
-	// if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
-	// 	log.Printf("Service didn't found files with certificates: %s, %s", certFile, keyFile)
-	// 	os.Exit(1)
-	// 	return
-	// }
+
 	ipS2 := strings.Split(config.BindAddress2, ":")[0]
 	certFile2 := filepath.Join(config.Configdir, ipS2+".pem")
 	keyFile2 := filepath.Join(config.Configdir, ipS2+"-key.pem")
 	if config.BindAddress2 != "" {
 		if !existPemFiles(config.Configdir, ipS2) {
 			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS2, ipS2)
-			os.Exit(1)
+			// allow go routine to exit
 			return
-
 		}
 	}
 	// if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
@@ -386,10 +392,10 @@ func runHTTPserver(config uploadserver.Config) {
 
 	}
 
-	go S1()
 	if config.BindAddress2 != "" {
-		S2()
+		go S2()
 	}
+	S1()
 
 }
 func existPemFiles(path string, bindAddress string) bool {

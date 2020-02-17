@@ -18,7 +18,7 @@ type Tservice struct {
 func (s *Tservice) Execute(args []string, changerequest <-chan svc.ChangeRequest, updatestatus chan<- svc.Status) (specificreturn bool, errno uint32) {
 	updatestatus <- svc.Status{State: svc.StartPending}
 	// here we are only when windows starts this service
-	go runHTTPserver(s.config)
+	go waitRunHTTPserver(s.config)
 
 	supports := svc.AcceptStop | svc.AcceptShutdown
 
@@ -34,6 +34,7 @@ func (s *Tservice) Execute(args []string, changerequest <-chan svc.ChangeRequest
 		}
 	}
 stoped:
+
 	return false, 0
 }
 
