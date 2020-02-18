@@ -424,7 +424,7 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 	if wastat.Size() > fromLog.FileSize {
 		// actual file already bigger then expected!
 		// Impossible unless a user has intervened or journal file is bad.
-		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.", name, wastat.Size(), fromLog.Startoffset)
+		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.\n", name, wastat.Size(), fromLog.Startoffset)
 		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
 			Error.E(op, err, errActualFileAlreadyBiggerThanExpacted, 0, "")
 	}

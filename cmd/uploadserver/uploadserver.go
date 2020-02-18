@@ -88,17 +88,17 @@ func main() {
 		loginsfilename := filepath.Join(configdir, "logins.json")
 		err := loginsSt.OpenDB(loginsfilename)
 		if err != nil {
-			log.Printf("Can't open logins.json file : %s", err)
+			log.Printf("Can't open logins.json file : %s\n", err)
 			return
 		}
 		loginobj := logins.Login{Login: *adduser}
 
 		err = logins.AskAndSavePasswordForHTTPDigest(&loginsSt, loginobj, constRealm)
 		if err != nil {
-			log.Printf("Can't write logins.json file : %s", err)
+			log.Printf("Can't write logins.json file : %s\n", err)
 			return
 		}
-		log.Printf("Password for login '%s' saved to %s", *adduser, loginsfilename)
+		log.Printf("Password for login '%s' saved to %s\n", *adduser, loginsfilename)
 
 		return
 	}
@@ -110,13 +110,13 @@ func main() {
 	}
 	storageroot, err := filepath.Abs(*paramStorageroot)
 	if err != nil {
-		log.Printf("Can't get absolute path of storageroot: %s", err)
+		log.Printf("Can't get absolute path of storageroot: %s\n", err)
 		return
 	}
 
 	froot, err := openStoragerootRw(storageroot)
 	if err != nil {
-		log.Printf("Can't start server, storageroot rw error: %s", err)
+		log.Printf("Can't start server, storageroot rw error: %s\n", err)
 
 		// let the service start, it will wait for the storageroot attachment
 	} else {
@@ -133,7 +133,7 @@ func main() {
 	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Printf("Can't find starting directory of server executable (used readonly). %s", err)
+		log.Printf("Can't find starting directory of server executable (used readonly). %s\n", err)
 		return
 	}
 	uploadserver.ConfigThisService.RunningFromDir = rundir
@@ -251,7 +251,7 @@ func waitRunHTTPserver(config uploadserver.Config) {
 		wa.Add(1)
 		go runHTTPserver(wa, config)
 		wa.Wait()
-		log.Printf("service is waiting 10sec to restart HTTP server")
+		log.Printf("service is waiting 10sec to restart HTTP server\n")
 		time.Sleep(20 * time.Second)
 	}
 }
@@ -263,7 +263,7 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 	if config.Configdir != "" {
 		if err != nil {
 			// if configdir is specified , a file logins.json must exist
-			log.Printf("If you specify a config directory, there must exist a logins.json file.")
+			log.Printf("If you specify a config directory, there must exist a logins.json file.\n")
 			return
 		}
 	}
@@ -272,7 +272,7 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 	var tlsConfig *tls.Config
 	ipS1 := strings.Split(config.BindAddress, ":")[0]
 	if !existPemFiles(config.Configdir, ipS1) {
-		log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS1, ipS1)
+		log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS1, ipS1)
 		// allow go routine to exit
 		return
 	}
@@ -284,7 +284,7 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 	keyFile2 := filepath.Join(config.Configdir, ipS2+"-key.pem")
 	if config.BindAddress2 != "" {
 		if !existPemFiles(config.Configdir, ipS2) {
-			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem", ipS2, ipS2)
+			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS2, ipS2)
 			// allow go routine to exit
 			return
 		}
@@ -391,10 +391,11 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 		}
 
 	}
-
 	if config.BindAddress2 != "" {
+		log.Printf("Service has started and is listenning on %s\n", config.BindAddress2)
 		go S2()
 	}
+	log.Printf("Service has started and is listenning on %s\n", config.BindAddress)
 	S1()
 
 }

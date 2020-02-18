@@ -1,10 +1,10 @@
 package main
 
 import (
-	"upload/fsdriver"
 	"flag"
 	"log"
 	"os"
+	"upload/fsdriver"
 )
 
 var name string
@@ -19,13 +19,13 @@ func main() {
 	}
 	f, err := os.Open(name)
 	if err != nil {
-		log.Printf("%s", err)
+		log.Printf("%s\n", err)
 		return
 
 	}
 	err = fsdriver.DecodePartialFile(f, os.Stdout)
 	if err != nil {
-		log.Printf("%s", err)
+		log.Printf("%s\n", err)
 		return
 	}
 }

@@ -44,7 +44,7 @@ func runsAsService(config uploadserver.Config) {
 		config: config,
 	})
 	if err != nil {
-		log.Printf("windows svc.Run() exited with error %s", err)
+		log.Printf("windows svc.Run() exited with error %s\n", err)
 	}
 
 	//or a linux variant go runHTTPserver(config)

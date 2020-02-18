@@ -67,7 +67,7 @@ func GetFileList(c *gin.Context) {
 	nameslist := fillnameslist(fullfspath, isnamefilter, reg)
 	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filelist.html"))
 	if err != nil {
-		log.Printf("%s", err)
+		log.Printf("%s\n", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("can't parse html template ./htmltemplates/filelist.html : %s", err)})
 
 		return
@@ -85,7 +85,7 @@ func GetFileList(c *gin.Context) {
 	}
 	err = tmpl.Execute(c.Writer, vtopage)
 	if err != nil {
-		log.Printf("%s", err)
+		log.Printf("%s\n", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("html template failed to execute. : %s", err)})
 		return
 	}

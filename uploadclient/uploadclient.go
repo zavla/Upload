@@ -147,7 +147,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		select {
 		case <-ctx.Done(): // cancel signal
 			ret = Error.E(op, nil, errCanceled, 0, "")
-			log.Printf("%s", ret)
+			log.Printf("%s\n", ret)
 			return ret
 		default:
 		}
@@ -174,7 +174,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			} else {
 				ret = Error.E(op, err, errWhileSendingARequestToServer, 0, "")
 			}
-			log.Printf("%s", ret)
+			log.Printf("%s\n", ret)
 
 			time.Sleep(waitBeforeRetry) // waits: can't connect
 
@@ -186,7 +186,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 					// TODO(zavla): save filename to queue!!!
 
 					ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-					log.Printf("%s", ret)
+					log.Printf("%s\n", ret)
 					return ret
 				}
 				req.Body = f
@@ -240,7 +240,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
 		}
 		if resp.StatusCode == http.StatusUnauthorized && authorizationsent {
-			log.Printf("Username or password is incorrect.")
+			log.Printf("Username or password is incorrect.\n")
 			return Error.E(op, nil, ErrAuthorizationFailed, 0, "")
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -313,7 +313,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				// logs incorrect server respone
 
 				ret = Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
-				log.Printf("%s", ret)
+				log.Printf("%s\n", ret)
 				return ret // do not retry, just return
 			}
 			// server sent a proper json response
@@ -324,7 +324,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 			if err != nil {
 				ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-				log.Printf("%s", ret)
+				log.Printf("%s\n", ret)
 				return ret // do not retry if we can't open the file, just return
 			}
 
@@ -342,7 +342,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
 			if currentfilestatus.Startoffset != 0 {
-				log.Printf("%s: continue from startoffset %d for file %s", op, currentfilestatus.Startoffset, name)
+				log.Printf("%s: continue from startoffset %d for file %s\n", op, currentfilestatus.Startoffset, name)
 			}
 			// no delay, do expected request again
 			continue // cycles to next cli.Do()
@@ -351,9 +351,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 		{
 			if !oneResponseFromServerHasAProveOfRightPasswordhash {
-				log.Printf(Error.I18text("Server sider didn't prove it has a right password hash."))
+				log.Printf(Error.I18text("Server sider didn't prove it has a right password hash.\n"))
 			} else {
-				log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s", resp.Status, string(bodybytes)))
+				log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s\n", resp.Status, string(bodybytes)))
 			}
 
 		}

@@ -53,7 +53,7 @@ func main() {
 	where.ToURL = *uploadServerURL
 
 	if *paramFile == "" && *paramDirtomonitor == "" {
-		log.Printf("-file or -dir must be specified.")
+		log.Printf("-file or -dir must be specified.\n")
 		os.Exit(3)
 		return
 	}
@@ -87,7 +87,7 @@ func main() {
 			n := runtime.Stack(b, true)
 			b = b[:n]
 			// logs stack trace
-			log.Printf("%d bytes of stack trace.\n%s", n, string(b))
+			log.Printf("%d bytes of stack trace.\n%s\n", n, string(b))
 		}
 	}()
 	// Setup log destination: stdout or user specified file.
@@ -98,7 +98,7 @@ func main() {
 		var err error
 		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0)
 		if err != nil {
-			log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
+			log.Printf("%s\n", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
 			os.Exit(5)
 
 			return
@@ -117,7 +117,7 @@ func main() {
 
 		err := loginsSt.OpenDB(passwordfile)
 		if err != nil {
-			log.Printf("%s", err)
+			log.Printf("%s\n", err)
 			return
 		}
 
@@ -127,7 +127,7 @@ func main() {
 		}
 		loginFromFile, _, err := loginsSt.Find(where.Username, false)
 		if err != nil {
-			log.Printf("Login '%s' is not found in logins file %s", where.Username, passwordfile)
+			log.Printf("Login '%s' is not found in logins file %s\n", where.Username, passwordfile)
 			return
 		}
 		where.PasswordHash = loginFromFile.Passwordhash
@@ -237,7 +237,7 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 		err := prepareAndSendAFile(oneForAllCtx, name, &where)
 		if errError, ok := err.(*Error.Error); ok && errError.Code == uploadclient.ErrAuthorizationFailed {
 			callmeToCancel()
-			log.Printf("cancelling the whole request")
+			log.Printf("cancelling the whole request\n")
 			return
 		}
 	}
@@ -259,24 +259,24 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	//compute SHA1 of a file
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
-		log.Printf("%s", Error.E(op, err, errCantOpenFileForReading, 0, ""))
+		log.Printf("%s\n", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		return err
 	}
 
 	err = uploadclient.SendAFile(ctx, config, fullfilename, jar, bsha1)
 
 	if err == nil {
-		log.Printf("Upload successfull: %s", fullfilename)
+		log.Printf("Upload successfull: %s\n", fullfilename)
 
 		if err := markFileAsUploaded(fullfilename); err != nil {
 			// a non critical error
-			log.Printf("%s", Error.E(op, err, errMarkFileFailed, 0, ""))
+			log.Printf("%s\n", Error.E(op, err, errMarkFileFailed, 0, ""))
 		}
 		// SUCCESS
 		return nil
 	}
 
-	log.Printf("%s: %s", err, fullfilename)
+	log.Printf("%s: %s\n", err, fullfilename)
 	return err // every error is returned to caller, including authorization error.
 }
 
@@ -306,7 +306,7 @@ func getFilenames(dir string, chNames chan<- string) {
 	})
 	if err != nil {
 		close(chNames)
-		log.Printf("%s", Error.E(op, err, errReadingDirectory, 0, ""))
+		log.Printf("%s\n", Error.E(op, err, errReadingDirectory, 0, ""))
 	}
 
 	return
