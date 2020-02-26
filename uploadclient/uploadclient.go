@@ -83,7 +83,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	// req = req.WithContext(ctx)
 
-	// 'file already closed' !!!!!!!!!!!!!!!!!! with 100-continue
 	req.Header.Add("Expect", "100-continue")   // Client will not send body at once, it will wait for server response status "100-continue"
 	req.Header.Add("Connection", "keep-alive") // We have at least two roundprtips for authorization
 	// no connection with 'file already closed' req.Header.Add("Accept-Encoding", "deflate, compress, gzip;q=0, identity") //
@@ -152,7 +151,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		default:
 		}
 		// every step makes a request with a new body bytes (or continues upload)
-		// !!!req.Body = f // this somehow causes 'file already closed' on cli.Do()
 
 		// The first client request goes without a cookie.
 		// We get the cookies from server and other requests come with sessionID in cookies.
@@ -226,7 +224,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				oneResponseFromServerHasAProveOfRightPasswordhash = true
 			}
 		}
-
+		liteimp.Debugprint("%s\n", resp.Status)
 		//-------decoding status
 		if resp.StatusCode == http.StatusAccepted {
 			if oneResponseFromServerHasAProveOfRightPasswordhash {

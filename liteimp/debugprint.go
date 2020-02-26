@@ -1,6 +1,6 @@
 // +build debugprint
 
-package uploadserver
+package liteimp
 
 import (
 	"log"

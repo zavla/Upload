@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"os/signal"
 	"strings"
 	"sync"
 	Error "upload/errstr"
@@ -18,16 +19,19 @@ import (
 
 	//"encoding/base64"
 	"flag"
-	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
+
+	const op = "uploadserver.main()"
 	const constRealm = "upload" // this is for http digest authantication predefined realm,
 	// It is used to store passwords hashes in a file.
 
@@ -39,7 +43,6 @@ func main() {
 		asService      bool
 		logname        string
 	)
-	const op = "uploadserver.main()"
 	paramLogname := flag.String("log", "", "log `file` name.")
 	paramStorageroot := flag.String("root", "", "storage root `path` for files (required).")
 	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified `address:port`.")
@@ -123,12 +126,15 @@ func main() {
 
 		defer froot.Close()
 	}
-
-	uploadserver.ConfigThisService.BindAddress = bindToAddress
-	if bindToAddress2 != "" {
-		uploadserver.ConfigThisService.BindAddress2 = bindToAddress2
+	sladdr := make([]string, 0, 2) //cap==2
+	if bindToAddress != "" {
+		sladdr = append(sladdr, bindToAddress)
 	}
-	uploadserver.ConfigThisService.Storageroot = storageroot
+	if bindToAddress2 != "" {
+		sladdr = append(sladdr, bindToAddress2)
+	}
+	uploadserver.ConfigThisService.BindAddress = sladdr      // creates a slice of listenon addresses
+	uploadserver.ConfigThisService.Storageroot = storageroot // the root directory
 
 	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
@@ -141,26 +147,37 @@ func main() {
 	uploadserver.ConfigThisService.Logwriter = logwriter
 	uploadserver.ConfigThisService.AllowAnonymousUse = *paramAllowAnonymous
 
-	log.Printf("uploadserver service started and listening on %s,  writes to storage root %s\n", bindToAddress, storageroot)
 	if asService {
 		// runsAsService is unique for windows and linux.
 		// It responds to Windows Service Control Manager on windows.
 		runsAsService(uploadserver.ConfigThisService)
 	} else {
-		wa := &sync.WaitGroup{}
-		runHTTPserver(wa, uploadserver.ConfigThisService)
+
+		config := uploadserver.ConfigThisService
+		err := config.UpdateInterfacesConfigs()
+		if err != nil {
+			log.Printf("%s failed to create interfaces configuration, %s", op, err)
+
+			return
+		}
+		err = config.UpdateMapOfLogins()
+		if err != nil {
+			log.Printf("%s failed to load logins from logins.json, %s", op, err)
+
+			return
+		}
+
+		endlessRunHTTPserver(config)
+
+		chwithSignal := make(chan os.Signal, 1)
+		signal.Notify(chwithSignal, os.Interrupt)
+		s := <-chwithSignal
+		log.Printf("os.Interrupt %s recieved.", s)
+
 	}
 
 	log.Println("uploadserver main() exited.")
 
-}
-
-func loginsToMap(loginsstruct logins.Logins) map[string]logins.Login {
-	ret := make(map[string]logins.Login)
-	for _, l := range loginsstruct.Logins {
-		ret[l.Login] = l
-	}
-	return ret
 }
 
 func openStoragerootRw(storageroot string) (*os.File, error) {
@@ -245,61 +262,12 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	c.Set(gin.AuthUserKey, creds.Username) // grants a login
 	return                                 // normal exits and calls other handlers
 }
-func waitRunHTTPserver(config uploadserver.Config) {
-	wa := &sync.WaitGroup{}
-	for {
-		wa.Add(1)
-		go runHTTPserver(wa, config)
-		wa.Wait()
-		log.Printf("service is waiting 10sec to restart HTTP server\n")
-		time.Sleep(20 * time.Second)
-	}
-}
-func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
-	const op = "cmd/uploadserver.runHTTPserver()"
-	defer wa.Done() // after exit WorkGroup will be done.
-	// reads logins passwords
-	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(config.Configdir, "logins.json"))
-	if config.Configdir != "" {
-		if err != nil {
-			// if configdir is specified , a file logins.json must exist
-			log.Printf("If you specify a config directory, there must exist a logins.json file.\n")
-			return
-		}
-	}
-	loginsMap := loginsToMap(loginsstruct)
-	// load certs
-	var tlsConfig *tls.Config
-	ipS1 := strings.Split(config.BindAddress, ":")[0]
-	if !existPemFiles(config.Configdir, ipS1) {
-		log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS1, ipS1)
-		// allow go routine to exit
-		return
-	}
-	certFile := filepath.Join(config.Configdir, ipS1+".pem")
-	keyFile := filepath.Join(config.Configdir, ipS1+"-key.pem")
 
-	ipS2 := strings.Split(config.BindAddress2, ":")[0]
-	certFile2 := filepath.Join(config.Configdir, ipS2+".pem")
-	keyFile2 := filepath.Join(config.Configdir, ipS2+"-key.pem")
-	if config.BindAddress2 != "" {
-		if !existPemFiles(config.Configdir, ipS2) {
-			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS2, ipS2)
-			// allow go routine to exit
-			return
-		}
-	}
-	// if !os.IsNotExist(errCertPub) && !os.IsNotExist(errCertKey) {
-	// 	certUpload, err := tls.LoadX509KeyPair(certFile, keyFile)
-	// 	if err != nil {
-	// 		log.Printf("Certificate files have error: %s", err)
-	// 		return
-	// 	}
-	// 	tlsConfig = new(tls.Config)
-	// 	tlsConfig.Certificates = []tls.Certificate{certUpload}
-	// }
-	// gin specifics
+// createOneHTTPHandler initialises from uploadserver.Config a new HTTP Handler, which is gin.Engine.
+func createOneHTTPHandler(config uploadserver.Config) *gin.Engine {
+	// gin settings
 	router := gin.New()
+
 	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
 	router.Use(gin.LoggerWithWriter(config.Logwriter,
 		"/icons/back.gif",
@@ -308,9 +276,10 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 		"/icons/unknown.gif",
 		"/favicon.ico",
 	),
-		gin.RecoveryWithWriter(config.Logwriter))
+		gin.RecoveryWithWriter(config.Logwriter),
+	)
 
-	// Our authantication middleware. Gin executes this func for evey request.
+	// An authorization middleware. Gin executes this func for evey request.
 	router.Use(func(c *gin.Context) {
 		const op = "Login required."
 		if strings.HasPrefix(c.Request.RequestURI, "/icons") {
@@ -324,10 +293,10 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 			return
 		}
 		if loginFromURL != "" /*&& c.Request.Method != "GET"*/ {
-			loginCheck(c, loginsMap)
+			// authorization.
+			loginCheck(c, config.LoginsMap)
 		}
 		c.Next()
-		// otherwise no authorization. No login == anonymous access.
 	})
 
 	// anonymous upload
@@ -345,69 +314,58 @@ func runHTTPserver(wa *sync.WaitGroup, config uploadserver.Config) {
 	router.Handle("GET", "/upload/:login", uploadserver.GetFileList)
 
 	router.Handle("POST", "/upload/:login", uploadserver.ServeAnUpload)
-	//router.Handle("GET", "/upload/:login/list", uploadserver.GetFileList)
-
-	//router.Run(bindToAddress)  timeouts needed
-	S1 := func() {
-		s := &http.Server{
-			Addr:      config.BindAddress,
-			Handler:   router,
-			TLSConfig: tlsConfig,
-			// 8 hours for big uploads, clients should retry after that.
-			// Anonymous uploads have no means to retry uploads.
-			ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
-			// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
-			WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
-			ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
-			IdleTimeout:       120 * time.Second,       // time for client to post a second request.
-			//MaxHeaderBytes: 1000,
-		}
-
-		err = s.ListenAndServeTLS(certFile, keyFile)
-		if err != http.ErrServerClosed { // expects error
-			log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
-		}
-
-	}
-	S2 := func() {
-		s := &http.Server{
-			Addr:      config.BindAddress2,
-			Handler:   router,
-			TLSConfig: tlsConfig,
-			// 8 hours for big uploads, clients should retry after that.
-			// Anonymous uploads have no means to retry uploads.
-			ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
-			// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
-			WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
-			ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
-			IdleTimeout:       120 * time.Second,       // time for client to post a second request.
-			//MaxHeaderBytes: 1000,
-		}
-
-		err = s.ListenAndServeTLS(certFile2, keyFile2)
-
-		if err != http.ErrServerClosed { // expects error
-			log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
-		}
-
-	}
-	if config.BindAddress2 != "" {
-		log.Printf("Service has started and is listenning on %s\n", config.BindAddress2)
-		go S2()
-	}
-	log.Printf("Service has started and is listenning on %s\n", config.BindAddress)
-	S1()
-
+	return router
 }
-func existPemFiles(path string, bindAddress string) bool {
 
-	ipS := strings.Split(bindAddress, ":")[0]
-	certFile := filepath.Join(path, ipS+".pem")
-	keyFile := filepath.Join(path, ipS+"-key.pem")
-	_, errCertPub := os.Stat(certFile)
-	_, errCertKey := os.Stat(keyFile)
-	if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
-		return false
+// endlessRunHTTPserver starts goroutines for endlessly running runHTTPserver() on every interface from config.
+// Every goroutine waits for different resources being attached: disk, ip interface.
+func endlessRunHTTPserver(config uploadserver.Config) {
+
+	handler := createOneHTTPHandler(config)
+	//func
+	forOneInterface := func(netinterface string) {
+		for {
+			wa := &sync.WaitGroup{}
+			wa.Add(1)
+			go runHTTPserver(wa, handler, config, netinterface) // may fail if there is no disk or net interface.
+			// we wait and restart one more time
+			wa.Wait()
+			log.Printf("service is waiting 10sec to restart HTTP server on interface %s\n", netinterface)
+			time.Sleep(20 * time.Second)
+		}
 	}
-	return true
+	for _, v := range config.IfConfigs {
+		go forOneInterface(v.Listenon) //uses common handler and config, but different interface/address.
+	}
+}
+
+// runHTTPserver runs http.Server.ListenAndServe on one interface with a specified http.Handler.
+func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config uploadserver.Config, listenon string) {
+	const op = "cmd/uploadserver.runHTTPserver()"
+	defer wa.Done() // after exit WorkGroup will be done.
+
+	var tlsConfig *tls.Config //not used so far
+
+	interfaceConfig := config.IfConfigs[listenon] // here we specified certificates files names.
+
+	s := &http.Server{
+		Addr:      interfaceConfig.Listenon,
+		Handler:   handler,
+		TLSConfig: tlsConfig,
+		// 8 hours for big uploads, clients should retry after that.
+		// Anonymous uploads have no means to retry uploads.
+		ReadTimeout: 8 * 3600 * time.Second, // is an ENTIRE time on reading the request including reading the request body
+		// WriteTimeout:      60 * time.Second,  // total time to write the response, after this time the server will close a connection (but will complete serving current request with a response 0 body length send).
+		WriteTimeout:      12 * 3600 * time.Second, // if server didn't manage to write response (it was busy writing a file) within this time - server closes connection.
+		ReadHeaderTimeout: 10 * time.Second,        // we need relatively fast response on inaccessable client
+		IdleTimeout:       120 * time.Second,       // time for client to post a second request.
+		//MaxHeaderBytes: 1000,
+	}
+
+	log.Printf("Service is starting on %s\n", interfaceConfig.Listenon)
+	err := s.ListenAndServeTLS(interfaceConfig.CertFile, interfaceConfig.KeyFile)
+	if err != http.ErrServerClosed { // expects error
+		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
+	}
+
 }

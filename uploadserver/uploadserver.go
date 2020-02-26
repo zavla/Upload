@@ -19,6 +19,9 @@ import (
 	Error "upload/errstr"
 	"upload/fsdriver"
 	"upload/liteimp"
+	"upload/logins"
+
+	//"upload/uploadserver"
 
 	//_ "time"
 	"github.com/gin-gonic/gin"
@@ -38,13 +41,21 @@ var clientsstates map[string]stateOfFileUpload
 var usedfiles sync.Map
 var emptysha1 [20]byte
 
+type interfaceconfig struct {
+	Listenon string
+	CertFile string
+	KeyFile  string
+}
+
 // Config is a type that hold all the configuration of this service.
 type Config struct {
 	Logwriter io.Writer
 	Configdir string
 	// BindAddress is an address of this service
-	BindAddress  string
-	BindAddress2 string
+	BindAddress []string
+	//BindAddress2 string
+	IfConfigs map[string]interfaceconfig
+	LoginsMap map[string]logins.Login
 	// Storageroot holds path to file store for this instance.
 	// Must be absolute.
 	Storageroot string
@@ -79,6 +90,68 @@ type writeresult struct {
 	count    int64
 	err      error
 	slerrors []error
+}
+
+func loginsToMap(loginsstruct logins.Logins) map[string]logins.Login {
+	ret := make(map[string]logins.Login)
+	for _, l := range loginsstruct.Logins {
+		ret[l.Login] = l
+	}
+	return ret
+}
+
+// UpdateMapOfLogins creates a new map of logins and read them from logins.json file.
+func (config *Config) UpdateMapOfLogins() error {
+	// reads logins passwords
+	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(config.Configdir, "logins.json"))
+	if config.Configdir != "" {
+		if err != nil {
+			// if configdir is specified , a file logins.json must exist
+			log.Printf("If you specify a config directory, there must exist a logins.json file.\n")
+			return os.ErrNotExist
+		}
+	}
+	config.LoginsMap = loginsToMap(loginsstruct)
+	return nil
+}
+func existPemFiles(path string, bindAddress string) bool {
+
+	ipS := strings.Split(bindAddress, ":")[0]
+	certFile := filepath.Join(path, ipS+".pem")
+	keyFile := filepath.Join(path, ipS+"-key.pem")
+	_, errCertPub := os.Stat(certFile)
+	_, errCertKey := os.Stat(keyFile)
+	if os.IsNotExist(errCertPub) || os.IsNotExist(errCertKey) {
+		return false
+	}
+	return true
+}
+
+// UpdateInterfacesConfigs creates configurations for every interface the service is listenning to.
+// It checks if certificates files for every interface exists.
+func (config *Config) UpdateInterfacesConfigs() error {
+	//var tlsConfig *tls.Config
+	if config.IfConfigs == nil {
+		config.IfConfigs = make(map[string]interfaceconfig, 2)
+	}
+	for _, v := range config.BindAddress {
+
+		ipS1 := strings.Split(v, ":")[0]
+		if !existPemFiles(config.Configdir, ipS1) {
+			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS1, ipS1)
+			// allow go routine to exit
+			return os.ErrNotExist
+		}
+		certFile := filepath.Join(config.Configdir, ipS1+".pem")
+		keyFile := filepath.Join(config.Configdir, ipS1+"-key.pem")
+		config.IfConfigs[v] = interfaceconfig{
+			Listenon: v,
+			CertFile: certFile,
+			KeyFile:  keyFile,
+		}
+	}
+
+	return nil
 }
 
 // recieveAndSendToChan reads blocks from io.ReaderCloser until io.EOF or timeout.
@@ -172,7 +245,7 @@ func consumeSourceChannel(
 				// on closed channel write smallbytes buffer first
 				if smallbytestotal != 0 {
 					// our small buffer has some bytes
-					debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, writeerr = fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination)
 
@@ -210,7 +283,7 @@ func consumeSourceChannel(
 
 					// Here we have the smallbytes buffer already big enough to be written.
 
-					debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination)
 					smallbytestotal = 0
@@ -229,7 +302,7 @@ func consumeSourceChannel(
 				}
 				if !addedtosmallbytes { // this b is not in smallbytes buffer and must be written to disk
 
-					debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
+					Debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination)
 
@@ -432,7 +505,8 @@ func ServeAnUpload(c *gin.Context) {
 		// Next we set store ID into cookie.
 		// httpOnly==true for the cookie to be unavailable for javascript api.
 		// path=="/upload" means "/upload" should be in URL path for this cookie to be sent to client.
-		c.SetCookie(liteimp.KeysessionID, newsessionID, 300, "/upload", "", http.SameSiteStrictMode, false, true)
+		// TODO(zavla): 300 => 5000 ?>?. what is SameSiteStrictMode, read https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site-00
+		c.SetCookie(liteimp.KeysessionID, newsessionID, 3, "/upload", "", http.SameSiteStrictMode, false, true)
 
 		// c holds in its Context a session ID in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
@@ -472,9 +546,9 @@ func ServeAnUpload(c *gin.Context) {
 		retErr := Error.ToUser(op, errSessionEnded, "now such session "+strSessionID)
 		log.Println(logline(c, retErr.Error()))
 		// we set cookie in response header. -1 == delete cookie now.
-		c.SetCookie(liteimp.KeysessionID, strSessionID, -1, "/upload", "", http.SameSiteStrictMode, false, true)
+		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, false, true)
 
-		// we set cookie in current context.
+		// we set key/value pair in current context.
 		c.Set(liteimp.KeysessionID, "")
 		// a user remains Authanticated, only a session ID cookie is cleared.
 
@@ -541,7 +615,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		helpmessage := "service expects from you JSON " + string(jsonbytes)
 		//
-		c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true) // clear cookie
+		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, false, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": Error.ToUser(op, errClientRequestShouldBindToJSON, helpmessage).Error()})
 		return
 	}
@@ -604,7 +678,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 				// Here err!=nil means upload is now allowed
 
 				delete(clientsstates, strSessionID)
-				c.SetCookie(liteimp.KeysessionID, "", -1, "", "", http.SameSiteStrictMode, false, true) // clear cookie
+				c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, false, true) // clear cookie
 				// c.Error(err)
 				log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", savedstate.name)))
 
@@ -653,7 +727,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	// This will trigger another request from client.
 	// Client must send rest of the file.
 
-	// DEBUG !!! //debugprint(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG client made a request with wrong offset fromClient.Startoffset == whatIsInFile.Startoffset %d == %d ", fromClient.Startoffset, whatIsInFile.Startoffset)).Error()))
+	// DEBUG !!! //Debugprint(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG client made a request with wrong offset fromClient.Startoffset == whatIsInFile.Startoffset %d == %d ", fromClient.Startoffset, whatIsInFile.Startoffset)).Error()))
 
 	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 
@@ -856,6 +930,3 @@ func validatefilepath(pathstr string, maxlen int) (err error) {
 	}
 	return //named
 }
-
-// To send a new file:
-// curl.exe -X GET http://127.0.0.1:64000/upload?"&"Filename="sendfile.rar" -T .\sendfile.rar

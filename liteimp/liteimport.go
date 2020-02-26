@@ -1,9 +1,9 @@
 package liteimp
 
 import (
-	"fmt"
-	"io/ioutil"
-	"net/http"
+	//"fmt"
+	//"io/ioutil"
+	//"net/http"
 	Error "upload/errstr"
 )
 
@@ -40,21 +40,21 @@ type RequestForFileList struct {
 }
 
 // Debugprint to print Response
-func Debugprint(resp interface{}) {
-	switch v := resp.(type) {
-	case http.Response:
+// func Debugprint(resp interface{}) {
+// 	switch v := resp.(type) {
+// 	case http.Response:
 
-		fmt.Printf("%v\n", v.Status)
-		fmt.Printf("HEADERS\n")
-		for k, v := range v.Header {
-			fmt.Printf("%s: %v\n", k, v)
-		}
-		b, _ := ioutil.ReadAll(v.Body)
-		fmt.Printf("\n%s\n", string(b))
+// 		fmt.Printf("%v\n", v.Status)
+// 		fmt.Printf("HEADERS\n")
+// 		for k, v := range v.Header {
+// 			fmt.Printf("%s: %v\n", k, v)
+// 		}
+// 		b, _ := ioutil.ReadAll(v.Body)
+// 		fmt.Printf("\n%s\n", string(b))
 
-	default:
-		fmt.Printf("%v", v)
+// 	default:
+// 		fmt.Printf("%v", v)
 
-	}
-	return
-}
+// 	}
+// 	return
+// }

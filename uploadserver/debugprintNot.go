@@ -2,6 +2,6 @@
 
 package uploadserver
 
-func debugprint(format string, args...interface{}){
+func Debugprint(format string, args ...interface{}) {
 
 }

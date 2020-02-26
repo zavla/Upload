@@ -18,7 +18,16 @@ type Tservice struct {
 func (s *Tservice) Execute(args []string, changerequest <-chan svc.ChangeRequest, updatestatus chan<- svc.Status) (specificreturn bool, errno uint32) {
 	updatestatus <- svc.Status{State: svc.StartPending}
 	// here we are only when windows starts this service
-	go waitRunHTTPserver(s.config)
+	err := s.config.UpdateInterfacesConfigs()
+	if err != nil {
+		return false, 1
+	}
+	err = s.config.UpdateMapOfLogins()
+	if err != nil {
+		return false, 1
+	}
+	uploadserver.Debugprint("%#v", s.config)
+	go endlessRunHTTPserver(s.config)
 
 	supports := svc.AcceptStop | svc.AcceptShutdown
 
