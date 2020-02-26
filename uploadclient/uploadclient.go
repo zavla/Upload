@@ -176,7 +176,6 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 			time.Sleep(waitBeforeRetry) // waits: can't connect
 
-			//req.Body = nil
 			if oneResponseFromServerHasAProveOfRightPasswordhash == true {
 				f, err = openandseekRO(fullfilename, currentfilestatus.Startoffset)
 				if err != nil {
@@ -303,6 +302,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			continue // this time with Authorization cookie
 
 		}
+		// DEBUG !!!
+		//time.Sleep(1 * time.Second)
+
 		if resp.StatusCode == http.StatusConflict { // we expect StatusConflict, it means we are to continue upload.
 			// server responded "a file already exists" with JSON
 			filestatus, err := decodeJSONinBody(bodybytes)
