@@ -126,16 +126,27 @@ func existPemFiles(path string, bindAddress string) bool {
 	}
 	return true
 }
+func (config *Config) InitInterfacesConfigs() {
+	if config.IfConfigs == nil {
+		config.IfConfigs = make(map[string]interfaceconfig, 2)
+	}
+	for _, v := range config.BindAddress {
+		config.IfConfigs[v] = interfaceconfig{Listenon: v}
+	}
+	return
+}
 
 // UpdateInterfacesConfigs creates configurations for every interface the service is listenning to.
 // It checks if certificates files for every interface exists.
-func (config *Config) UpdateInterfacesConfigs() error {
+func (config *Config) UpdateInterfacesConfigs(selectinterface string) error {
 	//var tlsConfig *tls.Config
 	if config.IfConfigs == nil {
 		config.IfConfigs = make(map[string]interfaceconfig, 2)
 	}
 	for _, v := range config.BindAddress {
-
+		if selectinterface != "" && selectinterface != v {
+			continue // update only a selected interface
+		}
 		ipS1 := strings.Split(v, ":")[0]
 		if !existPemFiles(config.Configdir, ipS1) {
 			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS1, ipS1)

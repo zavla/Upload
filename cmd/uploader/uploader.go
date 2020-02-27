@@ -4,6 +4,7 @@ package main
 // curl.exe -v -X POST 'http://127.0.0.1:64000/upload/zahar?&Filename="sendfile.rar"' -T .\testbackups\sendfile.rar --anyauth --user zahar
 import (
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"time"
 	Error "upload/errstr"
@@ -27,6 +28,7 @@ import (
 )
 
 var where uploadclient.ConnectConfig
+var gitCommit string
 
 const constRealm = "upload" // this is for http digest authantication predefined realm
 
@@ -42,8 +44,13 @@ func main() {
 	//askpassword := flag.Bool("askpassword", true, "will ask a user `password` for the Upload service.")
 	paramPasswordfile := flag.String("passwordfile", "", "a `file` with password.")
 	savepassword := flag.Bool("savepassword", false, "will save a password to a file specified with passwordfile.")
+	paramVersion := flag.Bool("version", false, "print `version`")
 
 	flag.Parse()
+	if *paramVersion {
+		fmt.Printf("version: %s", gitCommit)
+		os.Exit(0)
+	}
 	if len(os.Args[1:]) == 0 {
 		flag.PrintDefaults()
 		os.Exit(2)

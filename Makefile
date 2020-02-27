@@ -1,13 +1,17 @@
 .ONESHELL:
-all : uploadserver uploader
+all : git uploadserver uploader
 .PHONY: all
 .PHONY: uploader
 .PHONY: uploadserver
-
+.PHONY: git
+git:
+	c:\progra~1\git\bin\git.exe rev-list --pretty="format:%%h %%ai" -1 HEAD > ./gitCommit
 uploader : 
+	for /f "usebackq tokens=*" %%i in (gitCommit) DO set gg=%%i
 	cd .\cmd\uploader
-	go build -v
+	go build -v -ldflags="-X 'main.gitCommit=%gg%'"
 
 uploadserver :
+	for /f "usebackq tokens=*" %%i in (gitCommit) DO set gg=%%i
 	cd .\cmd\uploadserver 
-	go build -v
+	go build -v -ldflags="-X 'main.gitCommit=%gg%'"

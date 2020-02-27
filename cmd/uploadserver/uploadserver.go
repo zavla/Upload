@@ -29,6 +29,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var gitCommit string
+
 func main() {
 
 	const op = "uploadserver.main()"
@@ -51,8 +53,13 @@ func main() {
 	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon).")
 	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
 	paramAllowAnonymous := flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
+	paramVersion := flag.Bool("version", false, "print `version`")
 
 	flag.Parse()
+	if *paramVersion {
+		fmt.Printf("version: %s", gitCommit)
+		os.Exit(0)
+	}
 	configdir, _ = filepath.Abs(*paramConfigdir)
 
 	// setup log destination
@@ -154,20 +161,21 @@ func main() {
 	} else {
 
 		config := uploadserver.ConfigThisService
-		err := config.UpdateInterfacesConfigs()
-		if err != nil {
-			log.Printf("%s failed to create interfaces configuration, %s", op, err)
+		config.InitInterfacesConfigs()
+		// err := config.UpdateInterfacesConfigs("") // here config.ifCongigs is created
+		// if err != nil {
+		// 	log.Printf("%s failed to create interfaces configuration, %s", op, err)
 
-			return
-		}
-		err = config.UpdateMapOfLogins()
-		if err != nil {
-			log.Printf("%s failed to load logins from logins.json, %s", op, err)
+		// 	return
+		// }
+		// err = config.UpdateMapOfLogins()
+		// if err != nil {
+		// 	log.Printf("%s failed to load logins from logins.json, %s", op, err)
 
-			return
-		}
+		// 	return
+		// }
 
-		endlessRunHTTPserver(config)
+		endlessRunHTTPserver(&config)
 
 		chwithSignal := make(chan os.Signal, 1)
 		signal.Notify(chwithSignal, os.Interrupt)
@@ -264,7 +272,7 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 }
 
 // createOneHTTPHandler initialises from uploadserver.Config a new HTTP Handler, which is gin.Engine.
-func createOneHTTPHandler(config uploadserver.Config) *gin.Engine {
+func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	// gin settings
 	router := gin.New()
 
@@ -319,19 +327,37 @@ func createOneHTTPHandler(config uploadserver.Config) *gin.Engine {
 
 // endlessRunHTTPserver starts goroutines for endlessly running runHTTPserver() on every interface from config.
 // Every goroutine waits for different resources being attached: disk, ip interface.
-func endlessRunHTTPserver(config uploadserver.Config) {
+func endlessRunHTTPserver(config *uploadserver.Config) {
 
 	handler := createOneHTTPHandler(config)
+	for {
+		err := config.UpdateMapOfLogins()
+		if err == nil {
+			break
+		}
+		log.Printf("service is waiting for the config dir to become available to read logins.json\n")
+		time.Sleep(20 * time.Second)
+	}
 	//func
 	forOneInterface := func(netinterface string) {
+		log.Printf("trying service on net interface %s\n", netinterface)
 		for {
+			err := config.UpdateInterfacesConfigs(netinterface)
+			if err != nil {
+				log.Printf("service is waiting for the net interface to become available %s\n", netinterface)
+				time.Sleep(20 * time.Second)
+
+				continue
+			}
+
 			wa := &sync.WaitGroup{}
 			wa.Add(1)
 			go runHTTPserver(wa, handler, config, netinterface) // may fail if there is no disk or net interface.
 			// we wait and restart one more time
 			wa.Wait()
-			log.Printf("service is waiting 10sec to restart HTTP server on interface %s\n", netinterface)
-			time.Sleep(20 * time.Second)
+			const period20sec = 20
+			log.Printf("service is waiting %d sec to restart HTTP server on interface %s\n", period20sec, netinterface)
+			time.Sleep(period20sec * time.Second)
 		}
 	}
 	for _, v := range config.IfConfigs {
@@ -340,7 +366,7 @@ func endlessRunHTTPserver(config uploadserver.Config) {
 }
 
 // runHTTPserver runs http.Server.ListenAndServe on one interface with a specified http.Handler.
-func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config uploadserver.Config, listenon string) {
+func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserver.Config, listenon string) {
 	const op = "cmd/uploadserver.runHTTPserver()"
 	defer wa.Done() // after exit WorkGroup will be done.
 
