@@ -344,7 +344,9 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 		for {
 			err := config.UpdateInterfacesConfigs(netinterface)
 			if err != nil {
-				log.Printf("service is waiting for the net interface to become available %s\n", netinterface)
+
+				pemfilename := config.FilenamefromNetInterface(netinterface)
+				log.Printf("service didn't found files with certificates: %s.pem, %s-key.pem at %s\n", pemfilename, pemfilename, config.Configdir)
 				time.Sleep(20 * time.Second)
 
 				continue

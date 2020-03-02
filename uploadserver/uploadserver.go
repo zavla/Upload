@@ -126,6 +126,8 @@ func existPemFiles(path string, bindAddress string) bool {
 	}
 	return true
 }
+
+// InitInterfacesConfigs is used to initialize Config.
 func (config *Config) InitInterfacesConfigs() {
 	if config.IfConfigs == nil {
 		config.IfConfigs = make(map[string]interfaceconfig, 2)
@@ -134,6 +136,15 @@ func (config *Config) InitInterfacesConfigs() {
 		config.IfConfigs[v] = interfaceconfig{Listenon: v}
 	}
 	return
+}
+
+// FilenamefromNetInterface links address with filename.
+func (config *Config) FilenamefromNetInterface(netinterface string) string {
+
+	if pos := strings.IndexAny(netinterface, ":"); pos != -1 {
+		return netinterface[:pos]
+	}
+	return strings.ReplaceAll(netinterface, ":", "_")
 }
 
 // UpdateInterfacesConfigs creates configurations for every interface the service is listenning to.
@@ -149,7 +160,7 @@ func (config *Config) UpdateInterfacesConfigs(selectinterface string) error {
 		}
 		ipS1 := strings.Split(v, ":")[0]
 		if !existPemFiles(config.Configdir, ipS1) {
-			log.Printf("Service didn't found files with certificates: %s.pem, %s-key.pem\n", ipS1, ipS1)
+
 			// allow go routine to exit
 			return os.ErrNotExist
 		}
@@ -256,7 +267,7 @@ func consumeSourceChannel(
 				// on closed channel write smallbytes buffer first
 				if smallbytestotal != 0 {
 					// our small buffer has some bytes
-					Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					//Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, writeerr = fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination)
 
@@ -294,7 +305,7 @@ func consumeSourceChannel(
 
 					// Here we have the smallbytes buffer already big enough to be written.
 
-					Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
+					//Debugprint("WRITES BYTES smallbytes[:%d] -> offset %d\n", smallbytestotal, destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, smallbytes[:smallbytestotal], ver, &destination)
 					smallbytestotal = 0
@@ -313,7 +324,7 @@ func consumeSourceChannel(
 				}
 				if !addedtosmallbytes { // this b is not in smallbytes buffer and must be written to disk
 
-					Debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
+					//Debugprint("WRITES BYTES b[:%d] -> offset %d\n", len(b), destination.Startoffset)
 					// ACTUAL WRITE
 					successbytescount, err := fsdriver.AddBytesToFile(wa, wp, b, ver, &destination)
 
@@ -841,6 +852,8 @@ func GetPathWhereToStore(c *gin.Context) string {
 	}
 	return filepath.Join(ConfigThisService.Storageroot, filepath.Base(username))
 }
+
+// GetPathWhereToStoreByUsername returns a user storage path.
 func GetPathWhereToStoreByUsername(username string) string {
 	if username == "" {
 		return ConfigThisService.Storageroot
