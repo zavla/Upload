@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -271,21 +272,51 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 	return                                 // normal exits and calls other handlers
 }
 
+// fnginLogFormater is almost a copy of gin.defaultLogFormatter
+func fnginLogFormater(param gin.LogFormatterParams) string {
+	if param.Latency > time.Minute {
+		// Truncate in a golang < 1.8 safe way
+		param.Latency = param.Latency - param.Latency%time.Second
+	}
+	paramPathUnEsc, err := url.PathUnescape(param.Path)
+	if err != nil {
+		paramPathUnEsc = param.Path
+	}
+	return fmt.Sprintf("[GIN] %v| %3d| %11v| %13s|%4s| %s| %s\n",
+		param.TimeStamp.Format("2006/01/02 15:04:05"),
+		param.StatusCode,
+		param.Latency,
+		param.ClientIP,
+		param.Method,
+		paramPathUnEsc,
+		param.ErrorMessage,
+	)
+
+}
+
 // createOneHTTPHandler initialises from uploadserver.Config a new HTTP Handler, which is gin.Engine.
 func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	// gin settings
 	router := gin.New()
-
-	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
-	router.Use(gin.LoggerWithWriter(config.Logwriter,
+	slSkipov := []string{
 		"/icons/back.gif",
 		"/icons/blank.gif",
 		"/icons/hand.right.gif",
 		"/icons/unknown.gif",
 		"/favicon.ico",
-	),
-		gin.RecoveryWithWriter(config.Logwriter),
-	)
+	}
+	ginLoggerConfig := gin.LoggerConfig{Formatter: fnginLogFormater, Output: config.Logwriter, SkipPaths: slSkipov}
+	router.Use(gin.LoggerWithConfig(ginLoggerConfig), gin.RecoveryWithWriter(config.Logwriter))
+	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
+	// router.Use(gin.LoggerWithWriter(config.Logwriter,
+	// 	"/icons/back.gif",
+	// 	"/icons/blank.gif",
+	// 	"/icons/hand.right.gif",
+	// 	"/icons/unknown.gif",
+	// 	"/favicon.ico",
+	// ),
+	// 	gin.RecoveryWithWriter(config.Logwriter),
+	// )
 
 	// An authorization middleware. Gin executes this func for evey request.
 	router.Use(func(c *gin.Context) {
