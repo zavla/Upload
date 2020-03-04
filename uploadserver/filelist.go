@@ -59,7 +59,7 @@ func GetFileList(c *gin.Context) {
 	}
 	stat, err := os.Stat(fullfspath)
 	if err != nil || !stat.IsDir() {
-		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Errorf("can't download a file.").Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Errorf("can't download a file").Error()})
 
 		return
 

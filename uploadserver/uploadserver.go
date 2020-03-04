@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -104,13 +105,13 @@ func loginsToMap(loginsstruct logins.Logins) map[string]logins.Login {
 func (config *Config) UpdateMapOfLogins() error {
 	// reads logins passwords
 	loginsstruct, err := logins.ReadLoginsJSON(filepath.Join(config.Configdir, "logins.json"))
-	if config.Configdir != "" {
-		if err != nil {
-			// if configdir is specified , a file logins.json must exist
-			log.Printf("If you specify a config directory, there must exist a logins.json file.\n")
-			return os.ErrNotExist
-		}
+
+	if err != nil {
+		// if configdir is specified , a file logins.json must exist
+		log.Printf("you specify a config directory, there must exist a logins.json file: %s\n", err)
+		return os.ErrNotExist
 	}
+
 	config.LoginsMap = loginsToMap(loginsstruct)
 	return nil
 }
@@ -410,21 +411,27 @@ type logLine struct {
 	gin.LogFormatterParams
 }
 
-// logline mimics gin defaultLogger to format a log line.
+// logline creates gin.LogFromatterParams.
+// logline.String() prints.
 func logline(c *gin.Context, msg string) (ret logLine) {
-	ret = logLine{gin.LogFormatterParams{
-		Request: c.Request,
-		//IsTerm:  false,
-	},
+	ret = logLine{
+		gin.LogFormatterParams{
+			Request: c.Request,
+		},
+	}
+	retQueryUnEsc, err := url.QueryUnescape(c.Request.URL.RawQuery)
+	if err != nil {
+		retQueryUnEsc = c.Request.URL.RawQuery
 	}
 	ret.TimeStamp = time.Now()
 	ret.ClientIP = c.ClientIP()
-	ret.Path = c.Request.URL.Path + "?" + c.Request.URL.RawQuery
-	//strSessionID := c.GetString(liteimp.KeysessionID)
+	question := "?"
+	if retQueryUnEsc == "" {
+		question = ""
+	}
+	ret.Path = c.Request.URL.Path + question + retQueryUnEsc
+	//strSessionID := c.GetString(litesimp.KeysessionID)
 	// msgformat := `session %s: "%s"`
-	// if strSessionID != "" {
-	// 	msgformat = `%s "%s"` // presumably for new session messages
-	// }
 	// ret.ErrorMessage = fmt.Sprintf(msgformat, strSessionID, msg)
 	ret.ErrorMessage = msg
 	return // named
@@ -433,14 +440,11 @@ func logline(c *gin.Context, msg string) (ret logLine) {
 // String used to print msg to a log.out
 func (param logLine) String() string {
 
-	var statusColor, methodColor, resetColor string
-
-	return fmt.Sprintf(" |%s %3d %s| %13v | %15s |%s %-7s %s %s| %s",
-		//param.TimeStamp.Format(time.RFC3339Nano),
-		statusColor, param.StatusCode, resetColor,
+	return fmt.Sprintf("|%3d| %11v| %13s|%4s| %s| %s", // no "\n"
+		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
-		methodColor, param.Method, resetColor,
+		param.Method,
 		param.Path,
 		param.ErrorMessage,
 	)
@@ -464,8 +468,8 @@ func ServeAnUpload(c *gin.Context) {
 	// TODO(zavla): do not allow anonymous uploads anymore
 
 	if loginInURL != "" && !userChecked {
-		log.Println(logline(c, fmt.Sprintf("context has no value with key %s", gin.AuthUserKey)))
-		panic("Login in URL but login is not authenticated.")
+		log.Println(logline(c, fmt.Sprintf("login in URL has login part but this login is not authenticated. context has no value with key %s", gin.AuthUserKey)))
+		panic("login in URL has login part but this login is not authenticated.")
 	}
 	// no body means no file, but we respond to client with X-ProvePeerHasTheRightPasswordHash
 	lcontentstr := c.GetHeader("Content-Length")
@@ -522,7 +526,7 @@ func ServeAnUpload(c *gin.Context) {
 		// We set a cookie , next request from with client will come with this session cookie.
 		// Generate new cookie that represents session number for current file upload. New file means new ID.
 		newsessionID := uuid.New().String()
-		log.Println(logline(c, fmt.Sprintf("new session ID %s", newsessionID)))
+		//log.Println(logline(c, fmt.Sprintf("new session ID %s", newsessionID)))
 
 		// Next we set store ID into cookie.
 		// httpOnly==true for the cookie to be unavailable for javascript api.
@@ -553,7 +557,7 @@ func ServeAnUpload(c *gin.Context) {
 		if state, found := clientsstates[strSessionID]; found {
 
 			if state.good {
-				log.Println(logline(c, fmt.Sprintf("continue upload")))
+				//log.Println(logline(c, fmt.Sprintf("continue upload")))
 
 				// c holds session ID in KeyValue pair
 				c.Set(liteimp.KeysessionID, strSessionID)
@@ -688,8 +692,11 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		if errreciver != nil || writeresult.err != nil ||
 			(whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize {
 
-			log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned errreciver = %s", errreciver)))
-			log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned writeresult.err = %s", writeresult.err)))
+			// log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned errreciver = %s", errreciver)))
+			if writeresult.err != nil {
+				// write problem goes to log
+				log.Println(logline(c, fmt.Sprintf("service can't write, writeresult.err == %s", writeresult.err)))
+			}
 			// server failed to write all the bytes,
 			// OR reciever failed to recieve all the bytes
 			// OR recieved bytea are not the exact end of file
@@ -710,7 +717,6 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			}
 			// This will trigger another request from client.
 			// Client must send rest of the file.
-			// DEBUG !!! //log.Println(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG after failed upload whatIsInFile.Startoffset+writeresult.count) != whatIsInFile.FileSize %d + %d != %d", whatIsInFile.Startoffset, writeresult.count, whatIsInFile.FileSize)).Error()))
 			c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 			return
 		}
@@ -748,8 +754,6 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 	// Client made a request with wrong offset
 	// This will trigger another request from client.
 	// Client must send rest of the file.
-
-	// DEBUG !!! //Debugprint(logline(c, Error.E(op, nil, Error.ErrFileIO, 0, fmt.Sprintf("DEBUG client made a request with wrong offset fromClient.Startoffset == whatIsInFile.Startoffset %d == %d ", fromClient.Startoffset, whatIsInFile.Startoffset)).Error()))
 
 	c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
 
@@ -874,12 +878,10 @@ func closeFiles(wa, wp *os.File) ([]error, error) {
 	var slerrors []error
 	err1 := wa.Close()
 	if err1 != nil {
-		//log.Println(logline(c, fmt.Sprintf("writer can't close file %s, %s", wa.Name(), err1)))
 		slerrors = append(slerrors, err1)
 	}
 	err2 := wp.Close()
 	if err2 != nil {
-		//log.Println(logline(c, fmt.Sprintf("write can't close file %s, %s", wp.Name(), err2)))
 		slerrors = append(slerrors, err2)
 
 	}

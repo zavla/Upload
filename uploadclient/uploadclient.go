@@ -160,6 +160,11 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		// We are supposed to read to the EOF AND close the _RESPONSE_ body but only if err == nil
 		// (when err!=nil RESPONSE body is closed by Do() itself)
 
+		_, ok := req.Header["Cookie"]
+		if ok {
+			req.Header["Cookie"] = []string{} // clears because cookies are in cli.Jar and are copied from Jar into every http.Request by cli.Do()
+		}
+
 		req.Body = http.NoBody // lets ensure no file will be transfered on next request unless explicitly arainged by "req.Body = f"
 
 		if err != nil || resp == nil {
