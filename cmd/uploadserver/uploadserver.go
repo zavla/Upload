@@ -360,15 +360,17 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 // Every goroutine waits for different resources being attached: disk, ip interface.
 func endlessRunHTTPserver(config *uploadserver.Config) {
 
-	handler := createOneHTTPHandler(config)
 	for {
 		err := config.UpdateMapOfLogins()
+		// logins.json must exist
 		if err == nil {
 			break
 		}
 		log.Printf("service is waiting for the config dir to become available to read logins.json\n")
 		time.Sleep(20 * time.Second)
 	}
+	handler := createOneHTTPHandler(config)
+
 	//func
 	forOneInterface := func(netinterface string) {
 		log.Printf("trying service on net interface %s\n", netinterface)

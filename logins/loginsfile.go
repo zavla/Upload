@@ -124,7 +124,7 @@ func (ls *Logins) sortPointersToLogins(field string) {
 
 func (ls *Logins) OpenDB(path string) error {
 	newls, err := ReadLoginsJSON(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	*ls = newls
@@ -166,9 +166,8 @@ func ReadLoginsJSON(filename string) (Logins, error) {
 		sortedLogins: make([]*Login, 0),
 	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return ls, nil // not existent file will be created on Write
-		}
+		// thow not existent file will be created on Write, we indicate that file is not exist.
+		// Uploadserver needs to know if logins have been read.
 		return ls, err // read error is serious
 	}
 

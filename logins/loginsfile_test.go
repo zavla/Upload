@@ -2,6 +2,7 @@ package logins
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"upload/httpDigestAuthentication"
 )
@@ -59,7 +60,7 @@ func TestWriteLoginsJSON(t *testing.T) {
 func TestReadAddWriteRead(t *testing.T) {
 	var err error
 	Store, err = ReadLoginsJSON("./logins.json")
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		t.Errorf("%s", err)
 		return
 	}
@@ -93,6 +94,9 @@ func TestReadAddWriteRead(t *testing.T) {
 	_ = usr1
 	_ = usr3
 	store1, err := ReadLoginsJSON("./logins.json")
+	if err != nil {
+		t.Errorf("logins.json must exist, %s", err)
+	}
 	for _, v := range store1.Logins {
 		fmt.Printf("%v\n", v)
 	}
