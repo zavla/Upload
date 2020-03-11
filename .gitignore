@@ -37,3 +37,5 @@ cmd/uploadserver/htmltemplates/_filelist.html
 cert.list
 cmd/uploader/logins.json
 NppGTags.cfg
+*.exe
+*.log

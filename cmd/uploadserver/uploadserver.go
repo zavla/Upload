@@ -369,6 +369,7 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 		log.Printf("service is waiting for the config dir to become available to read logins.json\n")
 		time.Sleep(20 * time.Second)
 	}
+	log.Printf("service has read the logins.json file\n")
 	handler := createOneHTTPHandler(config)
 
 	//func
@@ -423,7 +424,7 @@ func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserve
 		//MaxHeaderBytes: 1000,
 	}
 
-	log.Printf("Service is starting on %s\n", interfaceConfig.Listenon)
+	log.Printf("Service is listening on %s now\n", interfaceConfig.Listenon)
 	err := s.ListenAndServeTLS(interfaceConfig.CertFile, interfaceConfig.KeyFile)
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
