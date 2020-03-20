@@ -9,7 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-	Error "upload/errstr"
+
+	Error "github.com/zavla/upload/errstr"
 )
 
 const constwriteblocklen = (1 << 16) - 1

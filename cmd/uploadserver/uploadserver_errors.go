@@ -1,6 +1,6 @@
 package main
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	errCantWriteLogFile = iota + Error.ErrorsCodesPackageCmdUploaderserver

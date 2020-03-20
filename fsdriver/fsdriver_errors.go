@@ -1,6 +1,6 @@
 package fsdriver
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	// errors used in this package

@@ -4,7 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"upload/fsdriver"
+
+	"github.com/zavla/upload/fsdriver"
 )
 
 func getbytes(value byte, size int) []byte {

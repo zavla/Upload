@@ -1,6 +1,6 @@
 package httpDigestAuthentication
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	errBadAuthorization = iota + Error.ErrorsCodesPackageHttpDigestAuthentication

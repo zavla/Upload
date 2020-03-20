@@ -2,7 +2,8 @@ package logins
 
 import (
 	"strconv"
-	Error "upload/errstr"
+
+	Error "github.com/zavla/upload/errstr"
 )
 
 const (

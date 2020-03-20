@@ -1,6 +1,6 @@
 package uploadclient
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	// errors used in this package
@@ -21,6 +21,7 @@ const (
 	errCanceled
 	errWhileSendingARequestToServer
 	errServerDidntProveItHasPasswordhash
+	errFtpDialFailed
 )
 
 func init() {
@@ -42,6 +43,7 @@ func init() {
 	Error.I18[errCanceled] = "Sending canceled."
 	Error.I18[errWhileSendingARequestToServer] = "Some error while sending a request to server."
 	Error.I18[errServerDidntProveItHasPasswordhash] = "Server didn't prove it has the right passwordhash."
+	Error.I18[errFtpDialFailed] = "Error with ftp, can't connect."
 	//---------------------MESSAGES
 	//Error.I18m["Server sider didn't prove it has a right password hash."] = ""
 }

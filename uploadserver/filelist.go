@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"time"
-	"upload/liteimp"
+
+	"github.com/zavla/upload/liteimp"
 
 	"github.com/gin-gonic/gin"
 )

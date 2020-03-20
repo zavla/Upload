@@ -4,7 +4,7 @@ import (
 	//"fmt"
 	//"io/ioutil"
 	//"net/http"
-	Error "upload/errstr"
+	Error "github.com/zavla/upload/errstr"
 )
 
 // KeysessionID is a key in cookies

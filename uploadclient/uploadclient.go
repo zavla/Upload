@@ -1,5 +1,5 @@
 /*
-Package uploadclient contains a client side of this upload service.
+Package uploadclient contains functions for uploading one file to different types of service.
 */
 package uploadclient
 
@@ -20,12 +20,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	Error "upload/errstr"
 
-	"upload/httpDigestAuthentication"
-	"upload/liteimp"
+	Error "github.com/zavla/upload/errstr"
+
+	"github.com/zavla/upload/httpDigestAuthentication"
+	"github.com/zavla/upload/liteimp"
 
 	"github.com/google/uuid"
+	"github.com/secsy/goftp"
 )
 
 // ConnectConfig is used to specify URL and username.
@@ -41,6 +43,38 @@ type ConnectConfig struct {
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
 
+	return nil
+}
+
+// FtpAFile send file to a ftp server.
+func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bsha1 []byte) error {
+	const op = "uploadclient.FtpAFile"
+	// TODO(zavla): make use of connections pool
+	confFtp := goftp.Config{
+		User:     where.Username,
+		Password: where.PasswordHash,
+		TLSConfig: &tls.Config{
+			ClientCAs: where.CApool,
+		},
+		TLSMode:    goftp.TLSExplicit,
+		IPv6Lookup: false,
+	}
+	serviceURL, _ := url.ParseRequestURI(where.ToURL)
+
+	cftp, err := goftp.DialConfig(confFtp, serviceURL.Host)
+	if err != nil {
+		return Error.E(op, err, errFtpDialFailed, 0, "")
+	}
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	if err != nil {
+		return Error.E(op, err, errCantOpenFileForReading, 0, "")
+	}
+	defer f.Close() // ignore err because f opened RO
+	err = cftp.Store(filepath.Base(fullfilename), f)
+	if err != nil {
+		log.Printf("%s\n", err)
+
+	}
 	return nil
 }
 

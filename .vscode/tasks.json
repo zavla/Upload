@@ -14,7 +14,7 @@
         {
             "label": "make all",
             "type": "shell",
-            "command": "make all",
+            "command": "./build.bat",
             "problemMatcher": [
                 "$go"
             ],

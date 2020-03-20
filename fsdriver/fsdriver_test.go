@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	Error "upload/errstr"
+
+	Error "github.com/zavla/upload/errstr"
 )
 
 const (

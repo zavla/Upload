@@ -1,7 +1,7 @@
 package liteimp
 
 import (
-	Error "upload/errstr"
+	Error "github.com/zavla/upload/errstr"
 )
 
 func init() {

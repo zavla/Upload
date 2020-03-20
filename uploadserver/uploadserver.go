@@ -17,14 +17,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-	Error "upload/errstr"
-	"upload/fsdriver"
-	"upload/liteimp"
-	"upload/logins"
 
-	//"upload/uploadserver"
+	Error "github.com/zavla/upload/errstr"
+	"github.com/zavla/upload/fsdriver"
+	"github.com/zavla/upload/liteimp"
+	"github.com/zavla/upload/logins"
 
-	//_ "time"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

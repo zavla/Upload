@@ -2,7 +2,8 @@ package main
 
 import (
 	"log"
-	"upload/uploadserver"
+
+	"github.com/zavla/upload/uploadserver"
 
 	"golang.org/x/sys/windows/svc"
 )

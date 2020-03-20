@@ -3,7 +3,7 @@ package fsdriver
 import (
 	"encoding/binary"
 	"io"
-	Error "upload/errstr"
+	Error "github.com/zavla/upload/errstr"
 )
 
 // startstructver1 is a header of version 1 of journal.

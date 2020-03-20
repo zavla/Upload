@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	Error "upload/errstr" // we depend on new standard functions: Unwrap, Is, As
-	"upload/httpDigestAuthentication"
+
+	Error "github.com/zavla/upload/errstr" // we depend on new standard functions: Unwrap, Is, As
+	"github.com/zavla/upload/httpDigestAuthentication"
 
 	"golang.org/x/crypto/ssh/terminal"
 )
+
+var PasswordForTest string
 
 type Manager interface {
 	Save() error
@@ -130,7 +133,19 @@ func (ls *Logins) OpenDB(path string) error {
 	*ls = newls
 	return nil
 }
-
+func AskPassword(username string) ([]byte, error) {
+	const op = "logins.AskPassword"
+	if PasswordForTest != "" {
+		return []byte(PasswordForTest), nil
+	}
+	fmt.Printf("\nEnter user '%s' password: ", username)
+	password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println("")
+	if err != nil {
+		return nil, err
+	}
+	return password, nil
+}
 func AskAndSavePasswordForHTTPDigest(loginsmanager Manager, loginobj Login, realm string) error {
 	const op = "logins.AskAndSavePasswordForHTTPDigest()"
 	fmt.Printf("\nEnter user '%s' password: ", loginobj.Login)

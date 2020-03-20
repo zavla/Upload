@@ -9,7 +9,8 @@ import (
 	"io"
 	"math/rand"
 	"strings"
-	Error "upload/errstr"
+
+	Error "github.com/zavla/upload/errstr"
 )
 
 // ChallengeToClient is used to hold parameters that will be sent to client in WWW-Authenticate header.

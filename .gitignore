@@ -3,7 +3,6 @@ sendfile.rar
 testfile.rar
 testfile.rar.partialinfo
 upload.exe
-.vscode/launch.json
 test/testfile.rar
 test/testfile.rar.partialinfo
 uploader/debug
@@ -39,3 +38,4 @@ cmd/uploader/logins.json
 NppGTags.cfg
 *.exe
 *.log
+cmd/uploader/login.json

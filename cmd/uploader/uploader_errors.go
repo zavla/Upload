@@ -1,6 +1,6 @@
 package main
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	// errors used in this package
@@ -17,6 +17,7 @@ const (
 	// errBadHTTPAuthanticationMethod
 	// errBadHTTPAuthenticationChellenge
 	// errAuthorizationFailed
+	errDPAPIfailed
 )
 
 func init() {
@@ -34,4 +35,5 @@ func init() {
 	// Error.I18[errBadHTTPAuthanticationMethod] = "Не поддреживаемый метод http аутентификации. Только Digest."
 	// Error.I18[errBadHTTPAuthenticationChellenge] = "Заголовок WWW-Authentication неправильный."
 	// Error.I18[errAuthorizationFailed] = "Authorization failed."
+	Error.I18[errDPAPIfailed] = "DPAPI encryption/decryption failed."
 }

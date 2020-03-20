@@ -1,6 +1,6 @@
 package main
 
-import "upload/uploadserver"
+import "github.com/zavla/upload/uploadserver"
 
 func runsAsService(config uploadserver.Config) {
 	runHTTPserver(config)

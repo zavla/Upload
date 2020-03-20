@@ -1,6 +1,6 @@
 package uploadserver
 
-import Error "upload/errstr"
+import Error "github.com/zavla/upload/errstr"
 
 const (
 	errServerExpectsRestOfTheFile = iota + Error.ErrorsCodesPackageUploadserver
