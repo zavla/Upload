@@ -4,11 +4,13 @@ Package uploadclient contains functions for uploading one file to different type
 package uploadclient
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
 
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -30,15 +32,25 @@ import (
 	"github.com/secsy/goftp"
 )
 
-// ConnectConfig is used to specify URL and username.
+// ConnectConfig holds connection parameters: URL and username etc..
 type ConnectConfig struct {
-	ToURL    string
+	// ToURL hold a connection URL to a service
+	ToURL string
+
 	Password string // TODO(zavla): check the cyrillic passwords
 	// OR you may specify a hash
 	PasswordHash string // one may already store a hash of password
 	Username     string
-	Certs        []tls.Certificate
-	CApool       *x509.CertPool // for the client to check the servers certificates
+
+	// Certs is used in TLSConfig for the client to identify itself.
+	Certs []tls.Certificate
+
+	// CApool holds your CA certs that this connection will use to verify its peer.
+	CApool *x509.CertPool // for the client to check the servers certificates
+
+	// InsecureSkipVerify is used in x509.TLSConfig to skip chain verification.
+	// Do not use in production
+	InsecureSkipVerify bool
 }
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
@@ -50,31 +62,97 @@ func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {
 func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bsha1 []byte) error {
 	const op = "uploadclient.FtpAFile"
 	// TODO(zavla): make use of connections pool
+	serviceURL, _ := url.ParseRequestURI(where.ToURL) // error checked early already in main
+
 	confFtp := goftp.Config{
 		User:     where.Username,
 		Password: where.PasswordHash,
 		TLSConfig: &tls.Config{
-			ClientCAs: where.CApool,
+			ClientCAs:          where.CApool,
+			ServerName:         serviceURL.Hostname(),
+			InsecureSkipVerify: where.InsecureSkipVerify,
 		},
+
 		TLSMode:    goftp.TLSExplicit,
 		IPv6Lookup: false,
 	}
-	serviceURL, _ := url.ParseRequestURI(where.ToURL)
 
 	cftp, err := goftp.DialConfig(confFtp, serviceURL.Host)
 	if err != nil {
+		log.Printf("gotfp.DialConfig returned an error: %s", err)
 		return Error.E(op, err, errFtpDialFailed, 0, "")
 	}
+	defer cftp.Close()
+
+	// local file info
 	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
 	if err != nil {
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 	defer f.Close() // ignore err because f opened RO
-	err = cftp.Store(filepath.Base(fullfilename), f)
+	finfo, err := os.Stat(fullfilename)
 	if err != nil {
+		log.Printf("os.Stat failed with error: %s", err)
+		return err
+	}
+
+	// remote file info
+	remotefilename := filepath.Base(fullfilename)
+	remotefinfo, err := cftp.Stat(remotefilename)
+	if err != nil {
+		//log.Printf("goftp.Stat failed with: %s", err)
+	}
+
+	if remotefinfo != nil && remotefinfo.Size() == finfo.Size() {
+		// lets do not send files again, rely on filesize
+		return Error.E(op, nil, errServerForbiddesUpload, 0, "")
+	}
+
+	// send a file to ftp
+	err = cftp.Store(remotefilename, f)
+	if err != nil {
+		log.Printf("gotfp.Store returned an error: %s", err)
 		log.Printf("%s\n", err)
+		return Error.E(op, err, errFtpDialFailed, 0, "")
 
 	}
+	dirsha1 := ".sha1"
+	err = ftpDirExistsOrCreateDir(cftp, dirsha1)
+	if err != nil {
+		log.Printf("goftp.MkDir failed: %s\n", err)
+	}
+	if err == nil {
+		// additinally send a file with sha1 in filename
+		ssha1 := make([]byte, hex.EncodedLen(len(bsha1)))
+		_ = hex.Encode(ssha1, bsha1)
+		pbf := bytes.NewBuffer([]byte{})
+		err = cftp.Store(filepath.Join(".sha1", remotefilename+".sha1_"+string(ssha1)), pbf)
+		if err != nil {
+			log.Printf("gotftp.Store failed: %s\n", err)
+
+		}
+	}
+	// no error
+	return nil
+}
+
+func ftpDirExistsOrCreateDir(cftp *goftp.Client, dir string) error {
+	_, err := cftp.Stat(dir)
+	if err != nil {
+		if errftp, ok := err.(goftp.Error); ok {
+
+			if strings.Contains(errftp.Message(), "The system cannot find") {
+				_, err = cftp.Mkdir(dir)
+				if err != nil {
+					return err
+				}
+				// ok, created
+				return nil
+			}
+		}
+		return err
+	}
+	// ok, exist
 	return nil
 }
 

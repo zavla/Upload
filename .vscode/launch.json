@@ -34,11 +34,11 @@
             "program": "${fileDirname}",
             "env": {} ,
              "args": [
-                //"-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/from_8_4_1c77_BasesDirs_2020-01.rar",
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
                 "-username","zahar",
-                "-passwordfile","./logins.json",
-                "-service", "https://192.168.3.53:64000/upload"
+                "-passwordfile","./login_https.json",
+                //"-service", "https://192.168.3.53:64000/upload"
+                "-cacert","./mkcertCA.pem"
             
              ]
         },
@@ -54,7 +54,8 @@
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
                 "-username","zahar",
                 "-passwordfile","./logins.json",
-                "-service", "ftp://192.168.1.106:2121"
+                "-service", "ftp://192.168.1.106:2121",
+                "-skipcertverify"
             
              ]
         },
@@ -69,8 +70,8 @@
             "env": {} ,
              "args": [
                 "-username","zahar",
-                "-passwordfile","./logins.json",
-                "-savepassword", "true"
+                "-passwordfile","./login_https.json",
+                "-savepasswordHTTPdigest", "true"
             
              ]
         },

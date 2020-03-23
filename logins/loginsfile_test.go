@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"upload/httpDigestAuthentication"
+
+	"github.com/zavla/upload/httpDigestAuthentication"
 )
 
 func TestWriteLoginsJSON(t *testing.T) {

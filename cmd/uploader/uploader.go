@@ -39,13 +39,14 @@ var gitCommit string
 const constRealm = "upload" // this is for http digest authantication predefined realm
 
 func loadPemFileIntoCertPool(certpool *x509.CertPool, filename string) error {
+	if certpool == nil {
+		return errors.New("certpool is nil")
+	}
+
 	_, errCertPub := os.Stat(filename)
 
 	if os.IsNotExist(errCertPub) {
 		return errCertPub
-	}
-	if certpool == nil {
-		certpool = x509.NewCertPool()
 	}
 
 	pemCerts, err := ioutil.ReadFile(filename)
@@ -67,12 +68,13 @@ func main() {
 	paramFile := flag.String("file", "", "a `file` you want to upload.")
 	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
 	username := flag.String("username", "", "a user `name` of an Upload service.")
-	uploadServerURL := flag.String("service", `https://127.0.0.1:64000/upload`, "`URL` of the Upload service.")
+	uploadServerURL := flag.String("service", `https://127.0.0.1:64000/upload`, "`URL` of the Upload service: https://..., ftp://....")
 	//askpassword := flag.Bool("askpassword", true, "will ask a user `password` for the Upload service.")
 	paramPasswordfile := flag.String("passwordfile", "", "a `file` with password.")
 	paramCAcert := flag.String("cacert", "", "a file with CA public `certificate` that singed service's certificate (e.x. 'mkcertCA.pem')")
 	savepassword := flag.Bool("savepassword", false, "save a password to a file specified with passwordfile.")
 	savepasswordHTTPdigest := flag.Bool("savepasswordHTTPdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
+	paramSkipCertVerify := flag.Bool("skipcertverify", false, "skips cert verification (if peer cert is self signed).")
 	paramVersion := flag.Bool("version", false, "print `version`")
 
 	flag.Parse()
@@ -87,8 +89,8 @@ func main() {
 	}
 	// check required parameters
 	where.ToURL = *uploadServerURL
-
-	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword {
+	where.InsecureSkipVerify = *paramSkipCertVerify
+	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*savepasswordHTTPdigest {
 		log.Printf("-file or -dir must be specified.\n")
 		os.Exit(1)
 		return
@@ -172,7 +174,8 @@ func main() {
 			return
 		}
 		if *savepasswordHTTPdigest {
-			savepasswordWithDPAPI(&loginsSt, *username, true, "")
+			savepasswordWithDPAPI(&loginsSt, *username, true, constRealm)
+			return
 		}
 
 		loginFromFile, _, err := loginsSt.Find(where.Username, false)
@@ -213,10 +216,15 @@ func main() {
 		where.ToURL += *username
 
 		requireCAcert = true
+		if *paramCAcert == "" {
+			log.Printf("You must use 'cacert' parameter and specify a file with CA certificate. Your service is %s\n", serviceUrl.Scheme)
+			os.Exit(1)
+			return
+		}
 	}
 
 	// load CA certificate that signed the service's certificate.
-	var certpool *x509.CertPool
+	certpool := x509.NewCertPool()
 	err = loadPemFileIntoCertPool(certpool, cacert)
 	if err != nil && requireCAcert {
 		log.Printf("A file with CA certificate must exist %s: %s\n", cacert, err)
@@ -388,6 +396,8 @@ func getFilenames(dir string, chNames chan<- string) {
 	return
 }
 
+// savepasswordWithDPAPI asks for password, uses DPAPI to encrypt it, uses logins.Manager.Save() to store it.
+// If usedInHTTPDigest == true additinally transforms password into HTTP digest hash form: username,realm, password.
 func savepasswordWithDPAPI(loginsmanager logins.Manager, username string, usedInHTTPDigest bool, realm string) {
 	const op = "uploader.savepasswordWithDPAPI"
 	password, err := logins.AskPassword(username)
@@ -398,7 +408,7 @@ func savepasswordWithDPAPI(loginsmanager logins.Manager, username string, usedIn
 
 	loginobj := logins.Login{Login: username}
 
-	hashUsernameRealmPassword := string(password) // we store in DPAPI either password or its digest
+	hashUsernameRealmPassword := string(password)
 
 	if usedInHTTPDigest {
 		hashUsernameRealmPassword = httpDigestAuthentication.HashUsernameRealmPassword(loginobj.Login, realm, string(password))
