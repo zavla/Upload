@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"time"
 
 	"github.com/zavla/dpapi"
@@ -213,6 +214,11 @@ func main() {
 		if where.ToURL[len(where.ToURL)-1] != '/' {
 			where.ToURL += "/"
 		}
+		if !strings.HasSuffix(where.ToURL, "upload/") {
+			log.Printf("You must add /upload/ to the end of the -service parameter.\n")
+			os.Exit(1)
+			return
+		}
 		where.ToURL += *username
 
 		requireCAcert = true
@@ -360,7 +366,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 		return nil
 	}
 
-	log.Printf("%s: while sending the file %s\n", err, fullfilename)
+	log.Printf("while sending the file %s - error: %s\n", fullfilename, err)
 	return err // every error is returned to caller, including authorization error.
 }
 

@@ -351,7 +351,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		}
 		if resp.StatusCode == http.StatusForbidden {
 			// server actively denies upload. Changes to the file are forbidden.
-			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, "")
+			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, tomsg(bodybytes))
 		}
 		if resp.StatusCode == http.StatusUnauthorized && authorizationsent {
 			log.Printf("Username or password is incorrect.\n")
@@ -468,10 +468,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 		{
 			if !oneResponseFromServerHasAProveOfRightPasswordhash {
-				log.Printf(Error.I18text("Server sider didn't prove it has a right password hash.\n"))
-			} else {
-				log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s\n", resp.Status, string(bodybytes)))
+				log.Printf(Error.I18text("Server sider didn't prove yet it has the right password hash.\n"))
 			}
+			log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s\n", resp.Status, tomsg(bodybytes)))
 
 		}
 		// here goes other errors and http.statuses:
@@ -509,4 +508,12 @@ func decodeJSONinBody(bodybytes []byte) (value *liteimp.JsonFileStatus, err erro
 	}
 	return value, nil
 
+}
+
+func tomsg(b []byte) string {
+	l := len(b)
+	if l > 2000 {
+		l = 2000
+	}
+	return string(b[:l])
 }

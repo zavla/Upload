@@ -596,14 +596,15 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 	// Uses sync.Map to prevent uploading the same file in concurrent http handlers.
 	// usedfiles is global for http server.
-	_, loaded := usedfiles.LoadOrStore(savedstate.name, true) // equals to ReadOrStore
+	lockobject := filepath.Join(savedstate.username, savedstate.fullpath)
+	_, loaded := usedfiles.LoadOrStore(lockobject, true) // equals to ReadOrStore
 	if loaded {
 		// file is already busy at the moment
 		c.JSON(http.StatusForbidden, gin.H{"error": Error.E(op, nil, errRequestedFileIsBusy, Error.ErrKindInfoForUsers, savedstate.name)})
 		return
 	}
 	// clears sync.Map after this func exits.
-	defer usedfiles.Delete(savedstate.name)
+	defer usedfiles.Delete(lockobject)
 
 	// Creates reciever channel to hold read bytes in this connection.
 	// Bytes from chReciever will be written to file.

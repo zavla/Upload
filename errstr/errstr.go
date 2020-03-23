@@ -111,14 +111,17 @@ func (e *Error) Error() string {
 		}
 		if e.Descr != "" {
 			b.WriteString(": ")
-			if I18m != nil {
-				// there is a translation
-				b.WriteString(I18m[e.Descr])
-			} else {
-				// internationalization is not loaded
-				b.WriteString(e.Descr)
+			b.WriteString(e.Descr)
 
-			}
+			// TODO(zavla): internationalization of messages wait.
+			// if I18m != nil {
+			// 	// there is a translation
+			// 	b.WriteString(I18m[e.Descr])
+			// } else {
+			// 	// internationalization is not loaded
+			// 	b.WriteString(e.Descr)
+
+			// }
 
 		}
 

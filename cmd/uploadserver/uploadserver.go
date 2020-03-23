@@ -9,13 +9,14 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"os/signal"
+	"strings"
+	"sync"
+
 	Error "github.com/zavla/upload/errstr"
 	"github.com/zavla/upload/httpDigestAuthentication"
 	"github.com/zavla/upload/logins"
 	"github.com/zavla/upload/uploadserver"
-	"os/signal"
-	"strings"
-	"sync"
 
 	//"encoding/base64"
 	"flag"
@@ -338,9 +339,9 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 		c.Next()
 	})
 
-	// anonymous upload
-	router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
-	router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
+	// no anonymous upload
+	// router.Handle("GET", "/upload", uploadserver.ServeAnUpload)
+	// router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
 	// per user upload
 	router.Handle("GET", "/icons/*path", func(c *gin.Context) {
 		p := `f:\Zavla_VB\go\src\upload\cmd\uploadserver\htmltemplates\icons\`
