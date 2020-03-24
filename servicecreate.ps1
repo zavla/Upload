@@ -1,0 +1,1 @@
+New-Service -Name uploader -BinaryPathName "D:\uploadserver/uploadserver.exe -log D:\uploadserver/uploadserver.log -listenOn 192.168.2.4:64000 -config D:\uploadserver -root D:\uploadserver/storage -asService" -DisplayName "uploader" -Description "holds backups" -StartupType Automatic

@@ -36,10 +36,9 @@
              "args": [
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
                 "-username","zahar",
-                "-passwordfile","./login_https.json",
-                //"-service", "https://192.168.3.53:64000/upload"
+                "-passwordfile","d:/za/ftp/login_https.json",
+                "-service", "https://127.0.0.1:64000/upload",
                 "-cacert","./mkcertCA.pem"
-            
              ]
         },
         {
@@ -77,19 +76,21 @@
         },
 
         {
-            "name": "Attach to Srv",
+            "name": "attach to uploadserver",
             "type": "go",
             "request": "attach",
             "mode": "local",
-            "processId": 3704
+            "processId": 4384
         },
         {
-            "name": "84 uploader",
+            "name": "toremote",
             "type": "go",
             "mode": "remote",
-            "host": "192.168.8.4",
-            "port": 2345,
-            "request": "attach"
+            "host": "127.0.0.1",
+            "port": 49216,
+            "request": "attach",
+            "apiVersion": 2,
+            "trace": "log"
 
         },
     ]

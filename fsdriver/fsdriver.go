@@ -127,9 +127,13 @@ func openToRead(dir, name string) (*os.File, error) {
 	return f, err
 }
 
-func openToWrite(dir, name string) (*os.File, error) {
+func openToAppend(dir, name string) (*os.File, error) {
 	// seeks END
 	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0)
+	return f, err
+}
+func openToWrite(dir, name string) (*os.File, error) {
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0)
 	return f, err
 }
 
@@ -161,10 +165,10 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 		return
 	}
 
-	joinedname := filepath.Join(dir, name)
-	_, errstat := os.Lstat(joinedname)
+	waname := filepath.Join(dir, name)
+	_, errstat := os.Lstat(waname)
 
-	wa, errwa = openToWrite(dir, name)
+	wa, errwa = openToAppend(dir, name)
 	if errwa != nil {
 		return
 	}
@@ -174,7 +178,7 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 		mtime := time.Date(1980, time.February, 1, 0, 0, 1, 1, time.Local)
 		// set old date to indicate that a file is in progress
 		// Other tools from "DBA backups tool set" should respect this indication.
-		_ = os.Chtimes(joinedname, nowt, mtime)
+		_ = os.Chtimes(waname, nowt, mtime)
 	}
 	return //named ver, wp, wa, errwp, errwa
 }
@@ -214,17 +218,13 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 				return totalbyteswritten, err
 			}
 
-			nhavewritten, err := wa.WriteAt(newbytes[from:to], destinationrecord.Startoffset)
-			// err == nil when FSD (file system driver) accepted data but still holds it in memory till flush
+			nhavewritten, err := wa.Write(newbytes[from:to])
+			// may be that err == nil, it when FSD (file system driver) accepted data but still holds it in memory till flush
 			if err != nil {
-				// write of current block (hunk) failed
-				// revert actual file, though it's not necessary, because log file doesn't have step2 record.
+				// Write of current block (hunk) failed.
+				// Journal file will not have step2 record.
 
-				errFatal := wa.Truncate(destinationrecord.Startoffset)
-				if errFatal != nil { // can't truncate actual file.
-					return totalbyteswritten, errFatal
-				}
-				return totalbyteswritten, err // file reverted, and will continue after failer cause elumination (disk space freed for e.x.).
+				return totalbyteswritten + int64(nhavewritten), err // file reverted, and will continue after failer cause elumination (disk space freed for e.x.).
 			}
 
 			// add step2 into journal = "write end"

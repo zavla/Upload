@@ -175,12 +175,12 @@ func (config *Config) UpdateInterfacesConfigs(selectinterface string) error {
 	return nil
 }
 
-// recieveAndSendToChan reads blocks from io.ReaderCloser until io.EOF or timeout.
+// fillRecieverChannel reads blocks from io.ReaderCloser until io.EOF or timeout.
 // Expects large Gb files from http.Request.Boby.
 // Sends bytes to chReciever.
 // Suppose to work within a thread that reads connection.
 // Exits when error or EOF.
-func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
+func fillRecieverChannel(c io.ReadCloser, chReciever chan []byte, done <-chan struct{}) error {
 	const op = "uploadserver.recieveAndSendToChan()"
 	// timeout is set via http.Server{Timeout...}
 	defer func() {
@@ -194,15 +194,24 @@ func recieveAndSendToChan(c io.ReadCloser, chReciever chan []byte) error {
 	for { // endless recieve loop
 
 		b := make([]byte, blocklen) // must allocate for every read or else reads will overwrite previous b
-		n, err := c.Read(b)         // usually reads Request.Body
+		if b == nil {
+			panic(op + " make([]byte,blocklen) returned nil.")
+		}
+		n, err := c.Read(b) // usually reads Request.Body
 		// looks like n is mostly always 4096. tcp segment size?
 		if err != nil && err != io.EOF {
 
 			return Error.E(op, err, errConnectionReadError, 0, "") // or timeout?
 		}
 		if n > 0 {
+			// if write to disk in neigbour goroutine failed that goroutine closes chReciever
+			// and allows us to know there is no need to recieve more from connection.
+			select {
+			case <-done:
+				return Error.E(op, nil, 0, 0, "chReciever is ordered to close")
+			case chReciever <- b[:n]: // buffered chReciever
+			}
 
-			chReciever <- b[:n] // buffered chReciever
 		}
 		// DEBUG!!! //time.Sleep(2 * time.Millisecond)
 
@@ -222,7 +231,8 @@ func consumeSourceChannel(
 	chSource chan []byte,
 	chResult chan<- writeresult,
 	storagepath, name string,
-	destination fsdriver.JournalRecord) {
+	destination fsdriver.JournalRecord,
+	done chan struct{}) {
 
 	// to begin open both destination files
 	namelog := fsdriver.GetPartialJournalFileName(name)
@@ -244,6 +254,17 @@ func consumeSourceChannel(
 	}
 	// second (defered) call to Close(). It is safe to call Close() twice on *os.File.
 	defer wa.Close()
+
+	// make sure file size equals to destination.startoffset
+	wastat, err := wa.Stat()
+	if err != nil {
+		chResult <- writeresult{0, err, nil}
+		return
+	}
+	if wastat.Size() != destination.Startoffset {
+		chResult <- writeresult{0, errors.New("startoffest not equal to existing file size"), nil}
+		return
+	}
 
 	// small blocks buffer - this is a buffer for small []bytes from source
 	smallbytes := make([]byte, constrecieveblocklen*3)
@@ -275,14 +296,14 @@ func consumeSourceChannel(
 				}
 				// explicit Close
 				slerrors, closeerr := closeFiles(wa, wp)
-				// On Close() error is the last error while working with file.
+				// Close() errors are the last errors while working with files.
 				// Unless there was a Write error.
 				err = closeerr
 				if writeerr != nil {
 					err = writeerr
 				}
-				// DEBUG !!! //log.Printf("<-chSource is closed with nbyteswritten==%d", nbyteswritten)
 
+				close(done)                                           // indicate to reciever giveup recieving
 				chResult <- writeresult{nbyteswritten, err, slerrors} // err==nil means no error
 				return
 			}
@@ -310,6 +331,7 @@ func consumeSourceChannel(
 					smallbytestotal = 0
 					nbyteswritten += successbytescount
 					if err != nil {
+						close(done) // indicate to reciever giveup recieving
 						// Disk failure while Write().
 						// Make explicit Close().
 						slerrors, _ := closeFiles(wa, wp) // ignore Close error because there was a Write error.
@@ -329,6 +351,7 @@ func consumeSourceChannel(
 
 					nbyteswritten += successbytescount
 					if err != nil {
+						close(done) // indicate to reciever giveup recieving
 						// Disk Write() failure.
 						// Make explicit Close().
 						slerrors, _ := closeFiles(wa, wp) // ignore Close error because there was a Write error
@@ -369,14 +392,17 @@ func startWriteStartRecieveAndWait(c *gin.Context, cRequestBody io.ReadCloser,
 		}, currerr
 	}
 
+	// done will be closed be writing goroutine as an indication of writing failure.
+	done := make(chan struct{})
+
 	// Starts goroutine in background for write operations for this connection.
 	// writeChanTo will write while we are recieving.
-	go consumeSourceChannel(chReciever, chWriteResult, dir, name, whatwhere)
+	go consumeSourceChannel(chReciever, chWriteResult, dir, name, whatwhere, done)
 
 	// Reciever works in current goroutine, sends bytes to chReciever.
 	// Reciever may end with error, by timeout with error, or by EOF with nil error.
 	// First wait: for end of recieve
-	errRecieve := recieveAndSendToChan(cRequestBody, chReciever) // exits when error or EOF
+	errRecieve := fillRecieverChannel(cRequestBody, chReciever, done) // exits when error or EOF
 
 	// here reciever has ended.
 
