@@ -23,6 +23,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,6 +57,7 @@ func main() {
 	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
 	paramAllowAnonymous := flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
 	paramVersion := flag.Bool("version", false, "print `version`")
+	paramUsepprof := flag.Bool("usepprof", false, "debug, make available /debug/pprof/* URLs")
 
 	flag.Parse()
 	if *paramVersion {
@@ -155,6 +157,7 @@ func main() {
 	uploadserver.ConfigThisService.Configdir = configdir
 	uploadserver.ConfigThisService.Logwriter = logwriter
 	uploadserver.ConfigThisService.AllowAnonymousUse = *paramAllowAnonymous
+	uploadserver.ConfigThisService.Usepprof = *paramUsepprof
 
 	if asService {
 		// runsAsService is unique for windows and linux.
@@ -308,21 +311,12 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	}
 	ginLoggerConfig := gin.LoggerConfig{Formatter: fnginLogFormater, Output: config.Logwriter, SkipPaths: slSkipov}
 	router.Use(gin.LoggerWithConfig(ginLoggerConfig), gin.RecoveryWithWriter(config.Logwriter))
-	// TODO(zavla): seems like gin.LoggerWithWriter do not protect its Write() to log file with mutex
-	// router.Use(gin.LoggerWithWriter(config.Logwriter,
-	// 	"/icons/back.gif",
-	// 	"/icons/blank.gif",
-	// 	"/icons/hand.right.gif",
-	// 	"/icons/unknown.gif",
-	// 	"/favicon.ico",
-	// ),
-	// 	gin.RecoveryWithWriter(config.Logwriter),
-	// )
 
 	// An authorization middleware. Gin executes this func for evey request.
 	router.Use(func(c *gin.Context) {
 		const op = "Login required."
-		if strings.HasPrefix(c.Request.RequestURI, "/icons") {
+		if strings.HasPrefix(c.Request.RequestURI, "/icons") ||
+			strings.HasPrefix(c.Request.RequestURI, "/debug") {
 			c.Next()
 			return
 		}
@@ -344,8 +338,8 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	// router.Handle("POST", "/upload", uploadserver.ServeAnUpload)
 	// per user upload
 	router.Handle("GET", "/icons/*path", func(c *gin.Context) {
-		p := `f:\Zavla_VB\go\src\upload\cmd\uploadserver\htmltemplates\icons\`
-		//config.RunningFromDir + "/htmltemplates/icons"
+
+		p := config.RunningFromDir + "/htmltemplates/icons"
 		iserve := http.StripPrefix("/icons", http.FileServer(http.Dir(p)))
 
 		iserve.ServeHTTP(c.Writer, c.Request)
@@ -354,6 +348,16 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	router.Handle("GET", "/upload/:login", uploadserver.GetFileList)
 
 	router.Handle("POST", "/upload/:login", uploadserver.ServeAnUpload)
+
+	if config.Usepprof {
+
+		router.Handle("GET", "/debug/pprof", func(c *gin.Context) {
+			pprof.Index(c.Writer, c.Request)
+		})
+		router.Handle("GET", "/debug/profile", func(c *gin.Context) {
+			pprof.Profile(c.Writer, c.Request)
+		})
+	}
 	return router
 }
 

@@ -4,7 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
-	"upload/fsdriver"
+	"github.com/zavla/upload/fsdriver"
 )
 
 var name string

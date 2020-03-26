@@ -27,15 +27,15 @@ func (s *Tservice) Execute(args []string, changerequest <-chan svc.ChangeRequest
 
 	updatestatus <- svc.Status{State: svc.Running, Accepts: supports}
 	// select has no default and waits indefinitly
-	select {
-	case c := <-changerequest:
-		switch c.Cmd {
-		case svc.Stop, svc.Shutdown:
-			goto stoped
-		case svc.Interrogate:
 
-		}
+	c := <-changerequest
+	switch c.Cmd {
+	case svc.Stop, svc.Shutdown:
+		goto stoped
+	case svc.Interrogate:
+
 	}
+
 stoped:
 
 	return false, 0

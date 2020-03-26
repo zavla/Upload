@@ -24,28 +24,15 @@ func producer2(chI1 chan [65535]byte, b []byte, n int) {
 	close(chI1)
 }
 func consumer(chI1 chan []byte) {
-	for {
-		select {
-		case b, ok := <-chI1:
-			if !ok {
-				// closed
-				return
-			}
-			fnull.Write(b)
-		}
+	for b := range chI1 {
+		_, _ = fnull.Write(b)
 	}
 }
 func consumer2(chI1 chan [65535]byte) {
-	for {
-		select {
-		case b, ok := <-chI1:
-			if !ok {
-				// closed
-				return
-			}
-			fnull.Write(b[:])
-		}
+	for b := range chI1 {
+		_, _ = fnull.Write(b[:])
 	}
+
 }
 
 var fnull *os.File
@@ -57,7 +44,7 @@ func BenchmarkSliceIntoChannel(b *testing.B) {
 		return
 	}
 	defer fnull.Close()
-	fnull.Sync()
+	_ = fnull.Sync()
 	for i := 0; i < b.N; i++ {
 		chI1 := make(chan []byte, 10)
 		go producer(chI1, 20)
@@ -72,7 +59,7 @@ func BenchmarkArrayIntoChannel(b *testing.B) {
 		return
 	}
 	defer fnull.Close()
-	fnull.Sync()
+	_ = fnull.Sync()
 	bb := make([]byte, 65535)
 	for i := 0; i < b.N; i++ {
 		chI2 := make(chan [65535]byte)

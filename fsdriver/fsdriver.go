@@ -194,10 +194,6 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 
 	hunkscount := l / lenhunk
 
-	// TODO(zavla): don't do Sync when hunkscount == 0 ?
-	defer wp.Sync() // journal file sync
-	defer wa.Sync() // actual file sync
-
 	totalbyteswritten := int64(0)
 	for i := 0; i <= hunkscount; i++ { // steps one time more then numOfhunks, last hunk is not full.
 		// dicides what is the current block length

@@ -62,9 +62,11 @@ func Test_consumeSourceChannel(t *testing.T) {
 			journalname := fsdriver.GetPartialJournalFileName(tt.args.name)
 			os.Remove(filepath.Join(tt.args.storagepath, journalname))
 			os.Remove(filepath.Join(tt.args.storagepath, tt.args.name))
-
+			done := make(chan struct{})
 			// fsdriver.OpenTwoCorrespondentFiles(tt.args.storagepath, tt.args.name, journalname)
-			go consumeSourceChannel(tt.args.chSource, tt.args.chResult, tt.args.storagepath, tt.args.name, tt.args.destination)
+			go consumeSourceChannel(tt.args.chSource, tt.args.chResult, tt.args.storagepath, tt.args.name,
+				tt.args.destination,
+				done)
 			go tt.args.funcproducer(tt.args.chSource)
 			get, ok := waitForWriteToFinish(tt.args.chResult, tt.args.expectcount)
 			if !ok {
@@ -95,7 +97,7 @@ func addTest(testname string, tests *[]test, producer func(ch chan []byte), expe
 			expectcount:  expectcount,
 		},
 	})
-	return
+
 }
 
 func Test_validatefilepath(t *testing.T) {

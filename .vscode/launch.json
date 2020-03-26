@@ -11,15 +11,13 @@
             "request": "launch",
             "mode": "debug",
             "env": {"GOMAXPROCS":1},
+            "buildFlags": "-tags 'debugprint'",
             "program": "${workspaceFolder}/cmd/uploadserver",
-            //"args" : ["-adduser","zahar2"]
-            // "args": ["-log","${workspaceFolder}/cmd/uploadserver/testdata/storageroot/../service.log","-root",
-            //     "${workspaceFolder}/cmd/uploadserver/testdata/storageroot",
-            //     "-listenOn","192.168.3.53:64002",
-            // ]
-            "args": ["-log","${workspaceFolder}/cmd/uploadserver/testdata/storageroot/../service.log","-root",
-                "j:/b",
-                "-listenOn","192.168.3.53:64002",
+            "args": ["-log","${workspaceFolder}/cmd/uploadserver/testdata/storageroot/../service.log",
+                "-root","${workspaceFolder}/cmd/uploadserver/testdata/storageroot",
+                "-listenOn","127.0.0.1:64000",
+                "-usepprof",
+                "-config","${workspaceFolder}/cmd/uploadserver/",
             ]
 
 

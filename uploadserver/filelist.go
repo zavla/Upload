@@ -91,12 +91,11 @@ func GetFileList(c *gin.Context) {
 		return
 	}
 
-	return
 }
 
 func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []smallinf {
 	nameslist := make([]smallinf, 0, 200)
-	filepath.Walk(storagepath, func(path string, info os.FileInfo, errinfile error) error {
+	_ = filepath.Walk(storagepath, func(path string, info os.FileInfo, errinfile error) error {
 		if errinfile != nil {
 			return filepath.SkipDir
 		}
