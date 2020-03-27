@@ -5,7 +5,7 @@ all: git uploadserver uploader
 .PHONY: uploadserver
 .PHONY: git
 git:
-	git.exe rev-list --pretty="format:%%h %%ai" -1 HEAD > ./gitCommit
+	git.exe rev-list --pretty="format:%%h %%ai %%ae" -1 HEAD > ./gitCommit
 
 uploader : 
 	for /f "usebackq tokens=*" %%i in (gitCommit) DO set gg=%%i

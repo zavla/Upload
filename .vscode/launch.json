@@ -16,7 +16,7 @@
             "args": ["-log","${workspaceFolder}/cmd/uploadserver/testdata/storageroot/../service.log",
                 "-root","${workspaceFolder}/cmd/uploadserver/testdata/storageroot",
                 "-listenOn","127.0.0.1:64000",
-                "-usepprof",
+                "-debug",
                 "-config","${workspaceFolder}/cmd/uploadserver/",
             ]
 

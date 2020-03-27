@@ -49,17 +49,20 @@ func main() {
 		logname        string
 	)
 	paramLogname := flag.String("log", "", "log `file` name.")
-	paramStorageroot := flag.String("root", "", "storage root `path` for files (required).")
-	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listens on specified `address:port`.")
-	flag.StringVar(&bindToAddress2, "listenOn2", "", "listens on specified `address:port`.")
+	paramStorageroot := flag.String("root", "", "storage root `path` for files.")
+	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listen on specified `address:port`.")
+	flag.StringVar(&bindToAddress2, "listenOn2", "", "listen on specified `address:port`.")
 	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
-	flag.BoolVar(&asService, "asService", false, "start as a service (windows services or linux daemon).")
-	adduser := flag.String("adduser", "", "will add a `login` and save a password to a file specified with passwordfile.")
-	paramAllowAnonymous := flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
+	flag.BoolVar(&asService, "asService", false, "start as a Windows service.")
+	adduser := flag.String("adduser", "", "will add a login and save a password to logins.josn file in -config dir.")
+	paramAllowAnonymous := false //flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
 	paramVersion := flag.Bool("version", false, "print `version`")
-	paramUsepprof := flag.Bool("usepprof", false, "debug, make available /debug/pprof/* URLs")
+	paramUsepprof := flag.Bool("debug", false, "debug, make available /debug/pprof/* URLs in service for profile")
 
 	flag.Parse()
+	flag.CommandLine.SetOutput(os.Stdout)
+	flag.Usage = usage
+
 	if *paramVersion {
 		fmt.Printf("version: %s", gitCommit)
 		os.Exit(0)
@@ -91,6 +94,7 @@ func main() {
 
 	// here we have a working log file
 	if configdir == "" {
+		flag.Usage()
 		flag.PrintDefaults()
 		log.Fatalf("-configdir is required.")
 		return
@@ -119,6 +123,7 @@ func main() {
 
 	// check required params
 	if *paramStorageroot == "" {
+		flag.Usage()
 		flag.PrintDefaults()
 		return
 	}
@@ -156,7 +161,7 @@ func main() {
 	uploadserver.ConfigThisService.RunningFromDir = rundir
 	uploadserver.ConfigThisService.Configdir = configdir
 	uploadserver.ConfigThisService.Logwriter = logwriter
-	uploadserver.ConfigThisService.AllowAnonymousUse = *paramAllowAnonymous
+	uploadserver.ConfigThisService.AllowAnonymousUse = paramAllowAnonymous
 	uploadserver.ConfigThisService.Usepprof = *paramUsepprof
 
 	if asService {
@@ -434,5 +439,14 @@ func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserve
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 	}
+
+}
+func usage() {
+	fmt.Println(`Copyright zakhar.malinovskiy@gmail.com, `, gitCommit)
+	fmt.Printf(`Usage: 
+uploadserver -root dir [-log file] -config dir -listenOn ip:port [-listenOn2 ip:port] [-debug] [-asService]
+uploadserver -adduser name -config dir
+
+`)
 
 }
