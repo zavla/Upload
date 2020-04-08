@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 
 	Error "github.com/zavla/upload/errstr"
 )
@@ -165,21 +164,30 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 		return
 	}
 
+	itsnew := false
 	waname := filepath.Join(dir, name)
 	_, errstat := os.Lstat(waname)
-
+	if os.IsNotExist(errstat) {
+		itsnew = true
+		// looks like we need to flush to disk after OpenFile.
+		// If uploadserver and uploader on the same computer new file can't be written at once.
+	}
 	wa, errwa = openToAppend(dir, name)
 	if errwa != nil {
 		return
 	}
-	if os.IsNotExist(errstat) {
-		// if this is a new file we set a timestamp 1986
-		nowt := time.Now()
-		mtime := time.Date(1980, time.February, 1, 0, 0, 1, 1, time.Local)
-		// set old date to indicate that a file is in progress
-		// Other tools from "DBA backups tool set" should respect this indication.
-		_ = os.Chtimes(waname, nowt, mtime)
+	if itsnew {
+		errwa = wa.Sync()
+
 	}
+	// if os.IsNotExist(errstat) {
+	// 	// if this is a new file we set a timestamp 1986
+	// 	nowt := time.Now()
+	// 	mtime := time.Date(1980, time.February, 1, 0, 0, 1, 1, time.Local)
+	// 	// set old date to indicate that a file is in progress
+	// 	// Other tools from "DBA backups tool set" should respect this indication.
+	// 	_ = os.Chtimes(waname, nowt, mtime)
+	// }
 	return //named ver, wp, wa, errwp, errwa
 }
 

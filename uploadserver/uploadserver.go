@@ -284,6 +284,8 @@ func consumeSourceChannel(
 	destination fsdriver.JournalRecord,
 	done chan struct{}) {
 
+	const op = "uploadserver.consumeSourceChannel"
+
 	// to begin open both destination files
 	namelog := fsdriver.GetPartialJournalFileName(name)
 	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(storagepath, name, namelog)
@@ -299,7 +301,7 @@ func consumeSourceChannel(
 	defer wp.Close()
 
 	if erra != nil {
-		chResult <- writeresult{0, erra, nil}
+		chResult <- writeresult{0, Error.E(op, erra, 0, Error.ErrUseKindFromBaseError, "from fsdriver.OpenTwoCorrespondentFiles"), nil}
 		return
 	}
 	// second (defered) call to Close(). It is safe to call Close() twice on *os.File.
@@ -707,10 +709,12 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 			// log.Println(logline(c, fmt.Sprintf("startWriteStartRecieveAndWait returned errreciver = %s", errreciver)))
 			if writeresult.err != nil {
+				// server failed to write all the bytes,
 				// write problem goes to log
 				log.Println(logline(c, fmt.Sprintf("service can't write, writeresult.err == %s", writeresult.err)))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": Error.ToUser(op, errInternalServiceError, "write error")})
+				return
 			}
-			// server failed to write all the bytes,
 			// OR reciever failed to recieve all the bytes
 			// OR recieved bytea are not the exact end of file
 
