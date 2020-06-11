@@ -51,6 +51,10 @@ type ConnectConfig struct {
 	// InsecureSkipVerify is used in x509.TLSConfig to skip chain verification.
 	// Do not use in production
 	InsecureSkipVerify bool
+
+	// SkipMarkingAsUploaded allows scheme where there are two services that recieves the same files simultaniously.
+	// But one service is a master.
+	SkipMarkingAsUploaded bool
 }
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {

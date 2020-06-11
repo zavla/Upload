@@ -64,7 +64,7 @@ func loadPemFileIntoCertPool(certpool *x509.CertPool, filename string) error {
 func main() {
 	const op = "main()"
 	// It is used to store passwords in a file.
-
+	// TODO(zavla): params should be case insensitive
 	paramLogname := flag.String("log", "", "a log `file`.")
 	paramFile := flag.String("file", "", "a `file` you want to upload.")
 	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
@@ -77,7 +77,7 @@ func main() {
 	savepasswordHTTPdigest := flag.Bool("savepasswordHTTPdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
 	paramSkipCertVerify := flag.Bool("skipcertverify", false, "skips cert verification (if peer cert is self signed).")
 	paramVersion := flag.Bool("version", false, "print `version`")
-
+	paramSkipMarkAsUploaded := flag.Bool("skipmarkAsUploaded", false, "Skips marking of a file as uploaded.")
 	flag.Parse()
 	if *paramVersion {
 		fmt.Printf("version: %s", gitCommit)
@@ -89,6 +89,7 @@ func main() {
 		return
 	}
 	// check required parameters
+	where.SkipMarkingAsUploaded = *paramSkipMarkAsUploaded
 	where.ToURL = *uploadServerURL
 	where.InsecureSkipVerify = *paramSkipCertVerify
 	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*savepasswordHTTPdigest {
@@ -358,9 +359,11 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	if err == nil {
 		log.Printf("Upload successfull: %s\n", fullfilename)
 
-		if err := markFileAsUploaded(fullfilename); err != nil {
-			// a non critical error
-			log.Printf("%s\n", Error.E(op, err, errMarkFileFailed, 0, ""))
+		if !config.SkipMarkingAsUploaded {
+			if err := markFileAsUploaded(fullfilename); err != nil {
+				// a non critical error
+				log.Printf("%s\n", Error.E(op, err, errMarkFileFailed, 0, ""))
+			}
 		}
 		// SUCCESS
 		return nil
