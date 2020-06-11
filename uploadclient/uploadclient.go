@@ -52,9 +52,9 @@ type ConnectConfig struct {
 	// Do not use in production
 	InsecureSkipVerify bool
 
-	// SkipMarkingAsUploaded allows scheme where there are two services that recieves the same files simultaniously.
+	// DontUseFileAttribute allows scheme where there are two services that recieves the same files simultaniously.
 	// But one service is a master.
-	SkipMarkingAsUploaded bool
+	DontUseFileAttribute bool
 }
 
 func redirectPolicyFunc(_ *http.Request, _ []*http.Request) error {

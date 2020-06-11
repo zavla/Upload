@@ -89,7 +89,7 @@ func main() {
 		return
 	}
 	// check required parameters
-	where.SkipMarkingAsUploaded = *paramSkipMarkAsUploaded
+	where.DontUseFileAttribute = *paramSkipMarkAsUploaded
 	where.ToURL = *uploadServerURL
 	where.InsecureSkipVerify = *paramSkipCertVerify
 	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*savepasswordHTTPdigest {
@@ -359,7 +359,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	if err == nil {
 		log.Printf("Upload successfull: %s\n", fullfilename)
 
-		if !config.SkipMarkingAsUploaded {
+		if !config.DontUseFileAttribute {
 			if err := markFileAsUploaded(fullfilename); err != nil {
 				// a non critical error
 				log.Printf("%s\n", Error.E(op, err, errMarkFileFailed, 0, ""))
@@ -391,7 +391,11 @@ func getFilenames(dir string, chNames chan<- string) {
 			return filepath.SkipDir // no reqursion
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
-		isarchiveset, _ := getArchiveAttribute(path)
+		isarchiveset := true
+		if !where.DontUseFileAttribute {
+
+			isarchiveset, _ = getArchiveAttribute(path)
+		}
 		if isarchiveset {
 			chNames <- path
 		}
