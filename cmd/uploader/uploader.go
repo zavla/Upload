@@ -65,6 +65,8 @@ func main() {
 	const op = "main()"
 	// It is used to store passwords in a file.
 	// TODO(zavla): params should be case insensitive
+	// TODO(zavla): log file flush
+
 	paramLogname := flag.String("log", "", "a log `file`.")
 	paramFile := flag.String("file", "", "a `file` you want to upload.")
 	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
@@ -74,10 +76,16 @@ func main() {
 	paramPasswordfile := flag.String("passwordfile", "", "a `file` with password.")
 	paramCAcert := flag.String("cacert", "", "a file with CA public `certificate` that singed service's certificate (e.x. 'mkcertCA.pem')")
 	savepassword := flag.Bool("savepassword", false, "save a password to a file specified with passwordfile.")
+
 	savepasswordHTTPdigest := flag.Bool("savepasswordHTTPdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
+	flag.BoolVar(savepasswordHTTPdigest, "savepasswordhttpdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
+
 	paramSkipCertVerify := flag.Bool("skipcertverify", false, "skips cert verification (if peer cert is self signed).")
 	paramVersion := flag.Bool("version", false, "print `version`")
+
 	paramSkipMarkAsUploaded := flag.Bool("skipmarkAsUploaded", false, "Skips marking of a file as uploaded.")
+	flag.BoolVar(paramSkipMarkAsUploaded, "skipmarkasuploaded", false, "Skips marking of a file as uploaded.")
+
 	flag.Parse()
 	if *paramVersion {
 		fmt.Printf("version: %s", gitCommit)
