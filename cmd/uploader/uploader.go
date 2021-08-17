@@ -5,9 +5,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"strings"
 	"time"
 
@@ -35,31 +33,14 @@ import (
 )
 
 var where uploadclient.ConnectConfig
+
+// gitCommit holds version information by means of go build -ldflags="-X 'main.gitCommit=%gg%'"
 var gitCommit string
 
 const constRealm = "upload" // this is for http digest authantication predefined realm
 
-func loadPemFileIntoCertPool(certpool *x509.CertPool, filename string) error {
-	if certpool == nil {
-		return errors.New("certpool is nil")
-	}
-
-	_, errCertPub := os.Stat(filename)
-
-	if os.IsNotExist(errCertPub) {
-		return errCertPub
-	}
-
-	pemCerts, err := ioutil.ReadFile(filename)
-	if err == nil {
-		ok := certpool.AppendCertsFromPEM(pemCerts)
-		if !ok {
-			return errors.New("failed to add a certificate to the pool of certificates")
-		}
-	}
-	return nil
-
-}
+// Run command example:
+const exampleRun = `.\uploader.exe -service https://192.168.3.53:64002/upload -username zahar -dir .\testdata\testbackups\ -passwordfile ./testlogin.json -cacert ./mkcertCA.pem`
 
 func main() {
 	const op = "main()"
@@ -70,62 +51,51 @@ func main() {
 	paramLogname := flag.String("log", "", "a log `file`.")
 	paramFile := flag.String("file", "", "a `file` you want to upload.")
 	paramDirtomonitor := flag.String("dir", "", "a `directory` you want to upload.")
-	username := flag.String("username", "", "a user `name` of an Upload service.")
+	username := flag.String("username", "", "a `user` in Upload service.")
 	uploadServerURL := flag.String("service", `https://127.0.0.1:64000/upload`, "`URL` of the Upload service: https://..., ftp://....")
-	//askpassword := flag.Bool("askpassword", true, "will ask a user `password` for the Upload service.")
 	paramPasswordfile := flag.String("passwordfile", "", "a `file` with password.")
-	paramCAcert := flag.String("cacert", "", "a file with CA public `certificate` that singed service's certificate (e.x. 'mkcertCA.pem')")
-	savepassword := flag.Bool("savepassword", false, "save a password to a file specified with passwordfile.")
-
-	savepasswordHTTPdigest := flag.Bool("savepasswordHTTPdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
-	flag.BoolVar(savepasswordHTTPdigest, "savepasswordhttpdigest", false, "save a HTTP digest of password to a file specified with passwordfile.")
-
-	paramSkipCertVerify := flag.Bool("skipcertverify", false, "skips cert verification (if peer cert is self signed).")
+	paramCAcert := flag.String("cacert", "", "a PEM file with a CA public `certificate` that singed service's certificate")
+	savepassword := flag.Bool("savepassword", false, "save a user password to a file specified with passwordfile.")
+	forHttps := flag.Bool("forhttps", false, "to use for https.")
+	paramSkipCertVerify := flag.Bool("skipcertverify", false, "skips cert verification (use it if service's cert is self signed).")
 	paramVersion := flag.Bool("version", false, "print `version`")
-
 	paramSkipMarkAsUploaded := flag.Bool("skipmarkAsUploaded", false, "Skips marking of a file as uploaded.")
-	flag.BoolVar(paramSkipMarkAsUploaded, "skipmarkasuploaded", false, "Skips marking of a file as uploaded.")
 
 	flag.Parse()
 	if *paramVersion {
-		fmt.Printf("version: %s", gitCommit)
-		os.Exit(0)
+		fmt.Printf("version: %s\r\n", gitCommit)
+		return
 	}
 	if len(os.Args[1:]) == 0 {
 		flag.PrintDefaults()
 		os.Exit(1)
 		return
 	}
-	// check required parameters
 	where.DontUseFileAttribute = *paramSkipMarkAsUploaded
 	where.ToURL = *uploadServerURL
 	where.InsecureSkipVerify = *paramSkipCertVerify
-	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*savepasswordHTTPdigest {
-		log.Printf("-file or -dir must be specified.\n")
+
+	// check required parameters: either 'file' or 'dir'
+	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*forHttps {
+		log.Printf("-file or -dir must be specified.\r\n")
 		os.Exit(1)
 		return
 	}
+
+	// user asks to save a password - then check password file name
 	if *savepassword && *paramPasswordfile == "" {
-		log.Println("-passwordfile is not specified.")
+		log.Printf("-passwordfile is not specified.\r\n")
 		os.Exit(1)
 		return
 	}
-	// clean user input paths
+
+	// absolutize and clean input file paths
 	var logfile, file, dirtomonitor, passwordfile, cacert string = "", "", "", "", ""
-	if *paramFile != "" {
-		file, _ = filepath.Abs(*paramFile)
-	}
-	if *paramDirtomonitor != "" {
-		dirtomonitor, _ = filepath.Abs(*paramDirtomonitor)
-	}
-	if *paramPasswordfile != "" {
-		passwordfile, _ = filepath.Abs(*paramPasswordfile)
-	}
-	if *paramLogname != "" {
-		logfile, _ = filepath.Abs(*paramLogname)
-	}
-	if *paramCAcert != "" {
-		cacert, _ = filepath.Abs(*paramCAcert)
+	inputFilenames := []*string{paramLogname, paramFile, paramDirtomonitor, paramPasswordfile, paramCAcert}
+
+	if err := AbsInput(inputFilenames, &logfile, &file, &dirtomonitor, &passwordfile, &cacert); err != nil {
+		log.Printf("A file name is incorrect after Abs(), %w\r\n", err)
+		return
 	}
 
 	// Stack print on panic
@@ -133,12 +103,12 @@ func main() {
 		// on panic we will write to log file
 		if err := recover(); err != nil {
 
-			log.Printf("uploader main has paniced:\n%s\n", err)
+			log.Printf("PANIC: uploader has paniced:\r\n%s\r\n", err)
 			b := make([]byte, 2500) // enough buffer for stack trace text
 			n := runtime.Stack(b, true)
 			b = b[:n]
 			// output stack trace to a log
-			log.Printf("%d bytes of stack trace.\n%s\n", n, string(b))
+			log.Printf("%d bytes of stack trace.\r\n%s\r\n", n, string(b))
 		}
 	}()
 
@@ -150,10 +120,10 @@ func main() {
 
 		var err error
 
-		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0)
+		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
-			log.Printf("%s\n", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
-			os.Exit(5)
+			log.Printf("%s\r\n", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
+			os.Exit(1)
 			return
 		}
 	}
@@ -170,61 +140,62 @@ func main() {
 		// open a file or db with logins
 		err := loginsSt.OpenDB(passwordfile)
 		if err != nil {
-			log.Printf("%s\n", err)
+			log.Printf("%s\r\n", err)
 			os.Exit(1)
 			return
 		}
-		if *savepassword && *savepasswordHTTPdigest {
-			log.Println("Password must be saved either with 'savepassword' or with 'savepasswordHTTPdigest'. Not both.")
-			os.Exit(1)
-			return
-		}
+
 		if *savepassword {
-			savepasswordWithDPAPI(&loginsSt, *username, false, constRealm)
-			return
-		}
-		if *savepasswordHTTPdigest {
-			savepasswordWithDPAPI(&loginsSt, *username, true, constRealm)
+			// user wants to save and exit
+			gosavepassword(loginsSt, where.Username, *forHttps)
 			return
 		}
 
 		loginFromFile, _, err := loginsSt.Find(where.Username, false)
 		if err != nil {
-			log.Printf("Login '%s' is not found in logins file %s\n", where.Username, passwordfile)
+			log.Printf("Login '%s' is not found in logins file %s\r\n", where.Username, passwordfile)
 			os.Exit(1)
 			return
 		}
+
+		// extracts hash of a password
 		passwordhashBytes := make([]byte, hex.DecodedLen(len(loginFromFile.Passwordhash)))
 
+		// transforms hash from ascii representation into bytes
 		hex.Decode(passwordhashBytes, []byte(loginFromFile.Passwordhash))
+
+		// decrypts hash bytes by using a Windows DPAPI for current windows user
 		decryptedPasswordHash, err := dpapi.Decrypt(passwordhashBytes)
 		if err != nil {
-			log.Printf("Password decryption from DPAPI failed: %s", err)
+			log.Printf("Password decryption from DPAPI failed: %s\r\n", err)
 			os.Exit(1)
 			return
 		}
+
+		// holds hash in memory
 		where.PasswordHash = string(decryptedPasswordHash)
 
-	} /* else there is no password */
+	} /* else there is no password specified*/
 
 	serviceUrl, err := url.ParseRequestURI(where.ToURL)
 
 	if err != nil {
 		// is needed to test an error in where.ToURL early. next use of Scheme is a worker()
-		log.Printf("-listenTo parameter is bad: %s\n", err)
+		log.Printf("A 'service' parameter is bad: %s\r\n", err)
 		os.Exit(1)
 		return
 	}
-	println("schema == " + serviceUrl.Scheme)
 
 	requireCAcert := false
+	// CA == certification authority that signed the service's certificate.
 	if serviceUrl.Scheme == "https" {
 		// add username to URL for HTTPS
 		if where.ToURL[len(where.ToURL)-1] != '/' {
 			where.ToURL += "/"
 		}
 		if !strings.HasSuffix(where.ToURL, "upload/") {
-			log.Printf("You must add /upload/ to the end of the -service parameter.\n")
+			log.Printf("You must add /upload/ to the end of the URL in the -service parameter.\r\n")
+			log.Printf("Example: %v\r\n", exampleRun)
 			os.Exit(1)
 			return
 		}
@@ -232,7 +203,7 @@ func main() {
 
 		requireCAcert = true
 		if *paramCAcert == "" {
-			log.Printf("You must use 'cacert' parameter and specify a file with CA certificate. Your service is %s\n", serviceUrl.Scheme)
+			log.Printf("You must use 'cacert' parameter and specify a file with CA certificate in PEM format.\r\nYour service is %s\r\n", serviceUrl.Scheme)
 			os.Exit(1)
 			return
 		}
@@ -242,12 +213,12 @@ func main() {
 	certpool := x509.NewCertPool()
 	err = loadPemFileIntoCertPool(certpool, cacert)
 	if err != nil && requireCAcert {
-		log.Printf("A file with CA certificate must exist %s: %s\n", cacert, err)
+		log.Printf("A file with CA certificate must exist %s: %s\r\n", cacert, err)
 		os.Exit(1)
 		return
 	}
 
-	// TODO(zavla): load user certificate
+	// TODO(zavla): load user certificate. For the user to authanticate to the service.
 	//var certSl []tls.Certificate
 	// if *paramuserCert != "" {
 	// 	pemCerts, err := ioutil.ReadFile(certFile)
@@ -291,7 +262,10 @@ func main() {
 	// Any worker may cancel other workers.
 	// Here we are when all Workers have finished.
 
-	log.Println("Normal exit.")
+	if mainCtx.Err() == nil {
+
+		log.Println("Normal exit.")
+	}
 }
 
 // runWorkers starts payload goroutines.
@@ -304,6 +278,8 @@ func runWorkers(oneForAllCtx context.Context, callmeToCancel context.CancelFunc,
 
 		go worker(oneForAllCtx, callmeToCancel, &wg, chNames)
 
+		// Do not just run several goroutines - because tha user might specify wrong password.
+		// Why start many goroutines with wrong password each?
 		// pause after first worker has been run, this allows to see if you have the right password
 		if be1 {
 
@@ -323,19 +299,19 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 	for name := range ch {
 		select {
 		case <-oneForAllCtx.Done():
-			log.Println("cancel signal recieved")
+			log.Printf("The goroutine has received a Cancel\r\n")
 			return
 		default:
 		}
 		err := prepareAndSendAFile(oneForAllCtx, name, &where)
 		if errError, ok := err.(*Error.Error); ok && errError.Code == uploadclient.ErrAuthorizationFailed {
-			callmeToCancel()
-			log.Printf("cancelling the whole request because the service responed 'Authorization failed'\n")
+			callmeToCancel() // cancels the whole context and other goroutines
+			log.Printf("cancelling the whole request because the service responded 'Authorization failed'\r\n")
 
 			return
 		}
 	}
-	return
+
 }
 
 // prepareAndSendAFile works in a worker goroutine.
@@ -346,17 +322,18 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
-	fullfilename := filepath.Clean(filename)
+	fullfilename, _ := filepath.Abs(filename)
 	storagepath := filepath.Dir(fullfilename)
 	name := filepath.Base(fullfilename)
 
 	//compute SHA1 of a file
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
-		log.Printf("%s\n", Error.E(op, err, errCantOpenFileForReading, 0, ""))
+		log.Printf("%s\r\n", Error.E(op, err, errCantOpenFileForReading, 0, ""))
 		return err
 	}
 
+	// figure out the scheme: https, ftp
 	serviceURL, _ := url.ParseRequestURI(config.ToURL) // ignore error because we test in early in main()
 	if serviceURL.Scheme == "ftp" || serviceURL.Scheme == "ftps" {
 		err = uploadclient.FtpAFile(ctx, config, fullfilename, bsha1)
@@ -365,19 +342,19 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	}
 
 	if err == nil {
-		log.Printf("Upload successfull: %s\n", fullfilename)
+		log.Printf("Upload OK: %s\r\n", fullfilename)
 
 		if !config.DontUseFileAttribute {
 			if err := markFileAsUploaded(fullfilename); err != nil {
 				// a non critical error
-				log.Printf("%s\n", Error.E(op, err, errMarkFileFailed, 0, ""))
+				log.Printf("%s\r\n", Error.E(op, err, errMarkFileFailed, 0, ""))
 			}
 		}
 		// SUCCESS
 		return nil
 	}
 
-	log.Printf("while sending the file %s - error: %s\n", fullfilename, err)
+	log.Printf("Error sending %s : %s\r\n", fullfilename, err)
 	return err // every error is returned to caller, including authorization error.
 }
 
@@ -395,7 +372,7 @@ func getFilenames(dir string, chNames chan<- string) {
 			if dir == path { //first file
 				return nil
 			}
-			println("skipping ", path)
+			//println("skipping ", path)
 			return filepath.SkipDir // no reqursion
 		}
 		// uses "archive" attribute on Windows and FS_NODUMP_FL file attribute on linux.
@@ -411,7 +388,7 @@ func getFilenames(dir string, chNames chan<- string) {
 	})
 	if err != nil {
 		close(chNames)
-		log.Printf("%s\n", Error.E(op, err, errReadingDirectory, 0, ""))
+		log.Printf("%s\r\n", Error.E(op, err, errReadingDirectory, 0, ""))
 	}
 
 	return
@@ -423,7 +400,7 @@ func savepasswordWithDPAPI(loginsmanager logins.Manager, username string, usedIn
 	const op = "uploader.savepasswordWithDPAPI"
 	password, err := logins.AskPassword(username)
 	if err != nil {
-		log.Printf("Asking password failed: %s\n", err)
+		log.Printf("Asking password failed: %s\r\n", err)
 		return
 	}
 
@@ -462,11 +439,11 @@ func savepasswordExit(loginsSt logins.Manager, username string) {
 	loginobj := logins.Login{Login: username}
 	err := logins.AskAndSavePasswordForHTTPDigest(loginsSt, loginobj, constRealm)
 	if err != nil {
-		log.Printf("Saving password file failed: %s\n", err)
+		log.Printf("Saving password file failed: %s\r\n", err)
 		return
 	}
 
-	log.Printf("Password saved.\n")
+	log.Printf("Password saved.\r\n")
 	return
 
 }

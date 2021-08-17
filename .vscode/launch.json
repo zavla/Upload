@@ -34,7 +34,7 @@
              "args": [
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
                 "-username","zahar",
-                "-passwordfile","d:/za/ftp/login_https.json",
+                "-passwordfile","./testlogin.json",
                 "-service", "https://127.0.0.1:64000/upload",
                 "-cacert","./mkcertCA.pem"
              ]

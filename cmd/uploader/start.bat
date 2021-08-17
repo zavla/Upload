@@ -1,3 +1,2 @@
-rem .\uploader.exe --username zahar --dir .\testdata\testbackups\ --passwordfile ./login_https.json -cacert ./mkcertCA.pem -service ftp://192.168.2.2
-.\uploader.exe --skipmarkAsUploaded --username zahar --dir .\testdata\testbackups\ --passwordfile ./testlogin.json -cacert ./mkcertCA.pem -service https://192.168.3.53:64002/upload
+.\uploader.exe -service https://127.0.0.1:64000/upload -username zahar -dir .\testdata\testbackups\ -passwordfile ./testlogin.json -cacert ./mkcertCA.pem -skipmarkAsUploaded
 pause
