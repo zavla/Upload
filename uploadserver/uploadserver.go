@@ -480,7 +480,7 @@ func ServeAnUpload(c *gin.Context) {
 	_, userChecked := c.Get(gin.AuthUserKey)
 
 	// TODO(zavla): do not allow anonymous uploads anymore
-
+	// TODO(zavla): allow addition of config lines with new DBs
 	if loginInURL != "" && !userChecked {
 		log.Println(logline(c, fmt.Sprintf("login in URL has login part but this login is not authenticated. context has no value with key %s", gin.AuthUserKey)))
 		panic("login in URL has login part but this login is not authenticated.")

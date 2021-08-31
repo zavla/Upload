@@ -1,27 +1,46 @@
 package main
 
 import (
-	"os"
-
-	chattr "github.com/g0rbe/go-chattr"
+	"golang.org/x/sys/unix"
 )
 
-func MarkFileAsUploaded(fullfilename string) error {
-	f, err := os.Open(fullfilename)
+const constAttributeUploaded = "user.uploaded"
+
+func markFileAsUploaded(fullfilename string) error {
+	err := unix.Setxattr(fullfilename, constAttributeUploaded, []byte{}, 0)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return chattr.SetAttr(f, chattr.FS_NODUMP_FL)
+	return nil
 
 }
 
-func GetArchiveAttribute(fullfilename string) (bool, error) {
-	f, err := os.Open(fullfilename)
-	if err != nil {
+func getArchiveAttribute(fullfilename string) (bool, error) {
+	_, err := unix.Getxattr(fullfilename, constAttributeUploaded, nil)
+	if err == nil {
+		return true, nil
+	} else if err == unix.ENODATA {
+		// no attribute
+	} else {
+		// error reading attributes
 		return false, err
 	}
-	defer f.Close()
 
-	return chattr.IsAttr(f, chattr.FS_NODUMP_FL)
+	return false, nil
+}
+
+// TODO(zavla): make use of encryption on linux
+func encryptByOs(b []byte) ([]byte, error) {
+	//encrBytes, err := dpapi.Encrypt(b)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	return b, nil
+}
+func decryptByOs(b []byte) ([]byte, error) {
+	//encrBytes, err := dpapi.Encrypt(b)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	return b, nil
 }

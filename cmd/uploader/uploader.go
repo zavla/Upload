@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zavla/dpapi"
 	Error "github.com/zavla/upload/errstr"
 	"github.com/zavla/upload/httpDigestAuthentication"
 
@@ -165,7 +164,7 @@ func main() {
 		hex.Decode(passwordhashBytes, []byte(loginFromFile.Passwordhash))
 
 		// decrypts hash bytes by using a Windows DPAPI for current windows user
-		decryptedPasswordHash, err := dpapi.Decrypt(passwordhashBytes)
+		decryptedPasswordHash, err := decryptByOs(passwordhashBytes)
 		if err != nil {
 			log.Printf("Password decryption from DPAPI failed: %s\r\n", err)
 			os.Exit(1)
@@ -395,7 +394,7 @@ func getFilenames(dir string, chNames chan<- string) {
 }
 
 // savepasswordWithDPAPI asks for password, uses DPAPI to encrypt it, uses logins.Manager.Save() to store it.
-// If usedInHTTPDigest == true additinally transforms password into HTTP digest hash form: username,realm, password.
+// If usedInHTTPDigest == true additionally transforms password into HTTP digest hash form: username,realm, password.
 func savepasswordWithDPAPI(loginsmanager logins.Manager, username string, usedInHTTPDigest bool, realm string) {
 	const op = "uploader.savepasswordWithDPAPI"
 	password, err := logins.AskPassword(username)
@@ -411,7 +410,7 @@ func savepasswordWithDPAPI(loginsmanager logins.Manager, username string, usedIn
 	if usedInHTTPDigest {
 		hashUsernameRealmPassword = httpDigestAuthentication.HashUsernameRealmPassword(loginobj.Login, realm, string(password))
 	}
-	DPAPIpasswordBytes, err := dpapi.Encrypt([]byte(hashUsernameRealmPassword))
+	DPAPIpasswordBytes, err := encryptByOs([]byte(hashUsernameRealmPassword))
 	if err != nil {
 		log.Printf("%s", Error.E(op, err, errDPAPIfailed, 0, ""))
 		return

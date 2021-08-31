@@ -54,7 +54,7 @@ func main() {
 	flag.StringVar(&bindToAddress2, "listenOn2", "", "listen on specified `address:port`.")
 	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
 	flag.BoolVar(&asService, "asService", false, "start as a Windows service.")
-	adduser := flag.String("adduser", "", "will add a login and save a password to logins.josn file in -config dir.")
+	adduser := flag.String("adduser", "", "will add a login and save a password to logins.json file in -config dir.")
 	paramAllowAnonymous := false //flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
 	paramVersion := flag.Bool("version", false, "print `version`")
 	paramUsepprof := flag.Bool("debug", false, "debug, make available /debug/pprof/* URLs in service for profile")

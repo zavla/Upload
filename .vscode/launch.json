@@ -33,9 +33,9 @@
             "env": {} ,
              "args": [
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
-                "-username","zahar",
-                "-passwordfile","./testlogin.json",
-                "-service", "https://127.0.0.1:64000/upload",
+                "-username","testuserlinux",
+                "-passwordfile","./testdata/testlogin.json",
+                "-service", "https://192.168.3.53:64000/upload",
                 "-cacert","./mkcertCA.pem"
              ]
         },
@@ -50,7 +50,7 @@
              "args": [
                 "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
                 "-username","zahar",
-                "-passwordfile","./logins.json",
+                "-passwordfile","./testdata/logins.json",
                 "-service", "ftp://192.168.1.106:2121",
                 "-skipcertverify"
             
@@ -67,7 +67,7 @@
             "env": {} ,
              "args": [
                 "-username","zahar",
-                "-passwordfile","./login_https.json",
+                "-passwordfile","./testdata/login_https.json",
                 "-savepasswordHTTPdigest", "true"
             
              ]

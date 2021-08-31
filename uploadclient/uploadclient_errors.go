@@ -41,7 +41,7 @@ func init() {
 	Error.I18[errBadHTTPAuthenticationChellenge] = "Заголовок WWW-Authentication неправильный."
 	Error.I18[ErrAuthorizationFailed] = "Authorization failed."
 	Error.I18[errCanceled] = "Sending canceled."
-	Error.I18[errWhileSendingARequestToServer] = "Some error while sending a request to server."
+	Error.I18[errWhileSendingARequestToServer] = "error while sending a request to server."
 	Error.I18[errServerDidntProveItHasPasswordhash] = "Server didn't prove it has the right passwordhash."
 	Error.I18[errFtpDialFailed] = "Error with ftp, can't connect."
 	//---------------------MESSAGES

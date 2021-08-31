@@ -1,2 +1,0 @@
-.\uploadserver.exe   -root .\testdata\storageroot\ -config . -listenOn 127.0.0.1:64000
-rem ./uploadserver.exe  --listenOn 192.168.3.53:64002 --root .\testdata\storageroot\ --config j:\b\const --asService

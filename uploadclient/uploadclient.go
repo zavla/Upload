@@ -83,7 +83,7 @@ func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bs
 
 	cftp, err := goftp.DialConfig(confFtp, serviceURL.Host)
 	if err != nil {
-		log.Printf("gotfp.DialConfig returned an error: %s", err)
+		log.Printf("gotfp.DialConfig returned an error: %s\r\n", err)
 		return Error.E(op, err, errFtpDialFailed, 0, "")
 	}
 	defer cftp.Close()
@@ -96,7 +96,7 @@ func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bs
 	defer f.Close() // ignore err because f opened RO
 	finfo, err := os.Stat(fullfilename)
 	if err != nil {
-		log.Printf("os.Stat failed with error: %s", err)
+		log.Printf("os.Stat failed with error: %s\r\n", err)
 		return err
 	}
 
@@ -115,15 +115,15 @@ func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bs
 	// send a file to ftp
 	err = cftp.Store(remotefilename, f)
 	if err != nil {
-		log.Printf("gotfp.Store returned an error: %s", err)
-		log.Printf("%s\n", err)
+		log.Printf("gotfp.Store returned an error: %s\r\n", err)
+		log.Printf("%s\r\n", err)
 		return Error.E(op, err, errFtpDialFailed, 0, "")
 
 	}
 	dirsha1 := ".sha1"
 	err = ftpDirExistsOrCreateDir(cftp, dirsha1)
 	if err != nil {
-		log.Printf("goftp.MkDir failed: %s\n", err)
+		log.Printf("goftp.MkDir failed: %s\r\n", err)
 	}
 	if err == nil {
 		// additinally send a file with sha1 in filename
@@ -132,7 +132,7 @@ func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bs
 		pbf := bytes.NewBuffer([]byte{})
 		err = cftp.Store(filepath.Join(".sha1", remotefilename+".sha1_"+string(ssha1)), pbf)
 		if err != nil {
-			log.Printf("gotftp.Store failed: %s\n", err)
+			log.Printf("gotftp.Store failed: %s\r\n", err)
 
 		}
 	}
@@ -293,7 +293,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			} else {
 				ret = Error.E(op, err, errWhileSendingARequestToServer, 0, "")
 			}
-			log.Printf("%s\n", ret)
+			log.Printf("%s\r\n", ret)
 
 			time.Sleep(waitBeforeRetry) // waits: can't connect
 
@@ -304,7 +304,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 					// TODO(zavla): save filename to queue!!!
 
 					ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-					log.Printf("%s\n", ret)
+					log.Printf("%s\r\n", ret)
 					return ret
 				}
 				req.Body = f
@@ -358,7 +358,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			return Error.E(op, nil, errServerForbiddesUpload, Error.ErrKindInfoForUsers, tomsg(bodybytes))
 		}
 		if resp.StatusCode == http.StatusUnauthorized && authorizationsent {
-			log.Printf("Username or password is incorrect.\n")
+			log.Printf("Username or password is incorrect.\r\n")
 			return Error.E(op, nil, ErrAuthorizationFailed, 0, "")
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
@@ -434,7 +434,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 				// logs incorrect server respone
 
 				ret = Error.E(op, err, errServerRespondedWithBadJSON, 0, "")
-				log.Printf("%s\n", ret)
+				log.Printf("%s\r\n", ret)
 				return ret // do not retry, just return
 			}
 			// server sent a proper json response
@@ -445,7 +445,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 			if err != nil {
 				ret = Error.E(op, err, errFileSeekErrorOffset, 0, "")
-				log.Printf("%s\n", ret)
+				log.Printf("%s\r\n", ret)
 				return ret // do not retry if we can't open the file, just return
 			}
 
@@ -463,7 +463,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 			query.Set("filename", name)
 			req.URL.RawQuery = query.Encode()
 			if currentfilestatus.Startoffset != 0 {
-				log.Printf("%s: continue from startoffset %d for file %s\n", op, currentfilestatus.Startoffset, name)
+				log.Printf("%s: continue from startoffset %d for file %s\r\n", op, currentfilestatus.Startoffset, name)
 			}
 			// no delay, do expected request again
 			continue // cycles to next cli.Do()
@@ -472,9 +472,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 		{
 			if !oneResponseFromServerHasAProveOfRightPasswordhash {
-				log.Printf(Error.I18text("Server sider didn't prove yet it has the right password hash.\n"))
+				log.Printf(Error.I18text("Server side didn't prove it has the right password hash.\r\n"))
 			}
-			log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s\n", resp.Status, tomsg(bodybytes)))
+			log.Printf(Error.I18text("upload service responded with HTTP status %s, the response body was %s\r\n", resp.Status, tomsg(bodybytes)))
 
 		}
 		// here goes other errors and http.statuses:
