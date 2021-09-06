@@ -98,7 +98,7 @@ func CreateNewPartialJournalFile(dir, name string, lcontent int64, bytessha1 []b
 	const op = "fsdriver.CreateNewPartialJournalFile()"
 
 	namepart := GetPartialJournalFileName(name)
-	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0)
+	wp, err := os.OpenFile(filepath.Join(dir, namepart), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0660)
 	if err != nil {
 		return Error.E(op, err, errPartialFileCreate, 0, "")
 	}
@@ -128,18 +128,18 @@ func openToRead(dir, name string) (*os.File, error) {
 
 func openToAppend(dir, name string) (*os.File, error) {
 	// seeks END
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0660)
 	return f, err
 }
 func openToWrite(dir, name string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0660)
 	return f, err
 }
 
 // openJournalFile opens journal(log) file and seeks offset 0 to read a version struct and then seeks END of the file.
 func openJournalFile(dir, name string) (*os.File, uint32, error) {
 	// opens at the BEGINING
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0660)
 	if err != nil {
 		return f, 0, err
 	}
@@ -383,7 +383,7 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 			// May be that uploadserver was shutted down in the process of writing to the journal file.
 			// try to repair journal file to continue upload
 			wp.Close() // wp was opened for read
-			wp, err := os.OpenFile(filepath.Join(storagepath, namepart), os.O_RDWR, 0)
+			wp, err := os.OpenFile(filepath.Join(storagepath, namepart), os.O_RDWR, 0660)
 			if err == nil {
 				defer wp.Close()
 				if err := wp.Truncate(journaloffset); err == nil {
@@ -399,7 +399,7 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 
 						if fromLog.Startoffset < wastat.Size() { // a case when journal file doesn't have 'write ended' record.
 							// the last block of actual file may not be trusted ??
-							wa, err := os.OpenFile(filepath.Join(storagepath, name), os.O_RDWR, 0)
+							wa, err := os.OpenFile(filepath.Join(storagepath, name), os.O_RDWR, 0660)
 							if err == nil { // if we opened actual file (err==nil)
 								defer wa.Close() // second Close on a file is allowed
 								if err = wa.Truncate(fromLog.Startoffset); err == nil {

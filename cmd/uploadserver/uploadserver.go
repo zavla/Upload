@@ -376,21 +376,21 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 		if err == nil {
 			break
 		}
-		log.Printf("service is waiting for the config dir to become available to read logins.json\n")
+		log.Printf("service is waiting for the config directory to become available to read file logins.json\r\n")
 		time.Sleep(20 * time.Second)
 	}
-	log.Printf("service has read the logins.json file\n")
+	log.Printf("service has read the logins.json file\r\n")
 	handler := createOneHTTPHandler(config)
 
 	//func
 	forOneInterface := func(netinterface string) {
-		log.Printf("trying service on net interface %s\n", netinterface)
+		log.Printf("trying service on net interface %s\r\n", netinterface)
 		for {
 			err := config.UpdateInterfacesConfigs(netinterface)
 			if err != nil {
 
 				pemfilename := config.FilenamefromNetInterface(netinterface)
-				log.Printf("service didn't found files with certificates: %s.pem, %s-key.pem at %s\n", pemfilename, pemfilename, config.Configdir)
+				log.Printf("service didn't found files with certificates: %s.pem, %s-key.pem at %s\r\n", pemfilename, pemfilename, config.Configdir)
 				time.Sleep(20 * time.Second)
 
 				continue
@@ -402,7 +402,7 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 			// we wait and restart one more time
 			wa.Wait()
 			const period20sec = 20
-			log.Printf("service is waiting %d sec to restart HTTP server on interface %s\n", period20sec, netinterface)
+			log.Printf("service is waiting %d sec to restart HTTP server on interface %s\r\n", period20sec, netinterface)
 			time.Sleep(period20sec * time.Second)
 		}
 	}
@@ -434,7 +434,7 @@ func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserve
 		//MaxHeaderBytes: 1000,
 	}
 
-	log.Printf("Service is listening on %s now\n", interfaceConfig.Listenon)
+	log.Printf("service is listening on %s now\r\n", interfaceConfig.Listenon)
 	err := s.ListenAndServeTLS(interfaceConfig.CertFile, interfaceConfig.KeyFile)
 	if err != http.ErrServerClosed { // expects error
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
@@ -445,6 +445,7 @@ func usage() {
 	fmt.Println(`Copyright zakhar.malinovskiy@gmail.com, `, gitCommit)
 	fmt.Printf(`Usage: 
 uploadserver -root dir [-log file] -config dir -listenOn ip:port [-listenOn2 ip:port] [-debug] [-asService]
+or
 uploadserver -adduser name -config dir
 
 `)

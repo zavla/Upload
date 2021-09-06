@@ -1,17 +1,20 @@
 # A HTTPS service to hold your backup files. #
 ***Key features:***
-* works over HTTPS, uses certificates from files.
+* works over HTTPS, uses certificates from user supplied PEM files.
 * multi user support, holds files per user.
-* uses HTTP digest authentication for users.
-* allows upload continue at any time, but only until the file becomes complete.
+* uses HTTP digest authentication for checking user's passwords.
+* allows continue of upload at any time, but only until the file becomes completely uploaded.
 * writes to actual files through the special journal(transaction) files.
 * may be run as a Windows service.
-* server side may listen on two interfaces at a time.
-* server may wait for root storage be attached by administrator when needed.
-* this repository includes packages for server and client side.
-* the client side (uploader) marks all successfully uploaded files with unset of A attribute on Windows, or FS_NODUMP_FL attribute on Linux. Files Archive attribute is used in other tools from "A DBA backup files tool set.": [BackupsControl](https://github.com/zavla/BackupsControl.git), [DeleteArchivedBackups](https://github.com/zavla/DeleteArchivedBackups)
-* rotation of backup files accomlished by standalone command [DeleteArchivedBackups](https://github.com/zavla/DeleteArchivedBackups).
-* client side may also upload to ftp.
+* may be run on Linux.
+* server side can listen on two interfaces at a time.
+* server may wait for root storage to be attached by administrator when needed after a service start.
+* server responds with a list of your files at ex. GET, https://127.0.0.1:64000/upload/:yourusername/ 
+* this repository includes packages for server and client sides.
+* the client side (uploader) marks all successfully uploaded files with unset of 'A' attribute on Windows, or with 'user.uploaded' xattr attribute on Linux. This attribute is used in other tools from "A DBA backup files tool set.": [BackupsControl](https://github.com/zavla/BackupsControl.git), [DeleteArchivedBackups](https://github.com/zavla/DeleteArchivedBackups)
+* client uploader stores user password in DPAPI if on Windows.
+* client side may also upload to a ftp server.
+* rotation of backup files accomplished by standalone command [DeleteArchivedBackups](https://github.com/zavla/DeleteArchivedBackups) that you run on server side from a scheduler.
 
 #### To download a service:
 ~~~
@@ -19,14 +22,13 @@ go get -v github.com/zavla/upload
 ~~~
 #### To compile binaries run at upload root directory:
 ~~~
-make all
 or build.bat
-or go build ./cmd/...
+or build.sh
 ~~~
 This will run 'go build' for every /cmd/... with commit id compiled in.
 
 #### Usage:
-you may send using specialized uploader (which supports continue of upload) :
+you may upload files using specialized uploader (which supports continue of upload) :
 ~~~
 uploader.exe -username zahar -file .\testdata\testbackups\sendfile.rar  -passwordfile .\logins.json -cacert ./mkcertCA.pem -service https://127.0.0.1:64000/upload
 ~~~
@@ -36,12 +38,13 @@ uploader.exe --username zahar --dir .\testdata\testbackups -passwordfile .\login
 ~~~
 
 #### To launch a server of the service on command line:
-You will need two file in PEM format with services certificates e.x. 127.0.0.1.pem, 127.0.0.1-key.pem
+You will need two files in PEM format with service's certificate e.x. 127.0.0.1.pem, 127.0.0.1-key.pem. You need to generate certificate pair by yourself.  
+I prefer [https://github.com/FiloSottile/mkcert](https://github.com/FiloSottile/mkcert) for this.
 ~~~
 uploadserver.exe  -log .\testdata\service.log -root .\testdata\storageroot\ -config ./  -listenOn 127.0.0.1:64000
 ~~~
 
-#### To create a Windows service run in powershell:
+#### To create a Windows service on Windows run a powershell:
 ~~~
 servicecreate.ps1
 ~~~
@@ -53,7 +56,7 @@ uploadserver -root dir [-log file] -config dir -listenOn ip:port [-listenOn2 ip:
 uploadserver -adduser name -config dir
 
   -adduser string
-    	will add a login and save a password to logins.josn file in -config dir.
+    	will add a login and save a password to logins.json file in -config dir.
   -asService
     	start as a Windows service.
   -config directory

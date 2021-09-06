@@ -142,8 +142,8 @@ func (e *Error) Error() string {
 		b.WriteString(e.Descr)
 
 		if e.Err != nil {
-			const newline = ":\n\t"
-			b.WriteString(newline)
+			//const newline = ":\n\t"
+			b.WriteString(":")
 			b.WriteString(e.Err.Error()) // RECURSIVE Error print
 		}
 	}

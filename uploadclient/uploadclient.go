@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"net"
 
 	"encoding/hex"
 	"encoding/json"
@@ -89,7 +90,7 @@ func FtpAFile(ctx context.Context, where *ConnectConfig, fullfilename string, bs
 	defer cftp.Close()
 
 	// local file info
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0400)
 	if err != nil {
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
@@ -168,7 +169,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 	// opens the file
 	_, name := filepath.Split(fullfilename)
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0400)
 	if err != nil {
 		// let it be an error because the first time we send a file we should know its size.
 		// Later, when we can't _resume_ upload we will wait for the file to appear. May be a disk will be attached.
@@ -189,8 +190,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 
+	reqctx, _ := context.WithTimeout(ctx, 3*time.Hour)
 	// creates http.Request
-	req, err := http.NewRequest("POST", where.ToURL, nil)
+	req, err := http.NewRequestWithContext(reqctx, "POST", where.ToURL, nil)
 
 	if err != nil {
 		return Error.E(op, err, errCantCreateHTTPRequest, 0, "")
@@ -223,10 +225,14 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 	// I use transport to define timeouts: idle and expect timeout
 	tr := &http.Transport{
-		TLSClientConfig:       tlsConf,
+		TLSClientConfig: tlsConf,
+		Dial: func(network, addr string) (net.Conn, error) {
+			conn, err := net.DialTimeout(network, addr, 4*time.Second) // timeout to reach the server
+			return conn, err
+		},
 		Proxy:                 http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: 7 * time.Hour,    // wait for headers for how long
-		TLSHandshakeTimeout:   15 * time.Second, // time to negotiate for TLS
+		TLSHandshakeTimeout:   5 * time.Second,  // time to negotiate for TLS
 		IdleConnTimeout:       5 * time.Minute,  // server responded but connection is idle for how long
 		ExpectContinueTimeout: 10 * time.Second, // expects response status 100-continue before sending the request body
 	}
@@ -236,7 +242,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 		Timeout: 0,
 		// Timeout > 0 do not allow client to upload big files.
-		//Timeout:   5 * time.Minute, // we connected to ip port but didn't manage to read the whole response (headers and body) within Timeout
+		// Timeout - we connected to ip port but didn't manage to read the whole response (headers and body) within Timeout
+		// I set timeout in every http.Request in the code above
 		Transport: tr,  // I don't use http.DefaultTransport
 		Jar:       jar, // http.Request uses jar to keep cookies (to hold sessionID)
 	}
@@ -251,7 +258,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	oneResponseFromServerHasAProveOfRightPasswordhash := false
 	savedProveServerHasRightPasswordhash := ""
 
-	log.Printf("%s  ->\n", fullfilename)
+	log.Printf("sending %s\r\n", fullfilename)
 	// currentfilestatus holds last sent state, on error client retries again with this file state.
 	// It depends on error kind: transport may have sent some part of a file or may not.
 	currentfilestatus := liteimp.JsonFileStatus{JsonResponse: liteimp.JsonResponse{Count: filesize}}
@@ -262,7 +269,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		select {
 		case <-ctx.Done(): // cancel signal
 			ret = Error.E(op, nil, errCanceled, 0, "")
-			log.Printf("%s\n", ret)
+			log.Printf("%s\r\n", ret)
 			return ret
 		default:
 		}
@@ -486,7 +493,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 
 }
 func openandseekRO(fullfilename string, offset int64) (*os.File, error) {
-	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0)
+	f, err := os.OpenFile(fullfilename, os.O_RDONLY, 0400)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,2 @@
+.\uploader.exe -service https://192.168.3.53:64000/upload -username testuser -dir ./testdata/testbackups -passwordfile ./testdata/testlogin.json -cacert ./testdata/mkcertCA.pem -skipmarkAsUploaded
+pause
