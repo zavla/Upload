@@ -1,1 +1,1 @@
-./uploadserver   -root ./testdata/storageroot -config ./testdata -listenOn 127.0.0.1:64000
+./uploadserver  -debug -root ./testdata/storageroot -config ./testdata -listenOn 127.0.0.1:64000

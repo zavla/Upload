@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -64,7 +65,7 @@ func main() {
 	flag.Usage = usage
 
 	if *paramVersion {
-		fmt.Printf("version: %s", gitCommit)
+		fmt.Printf("version: %s\r\n", gitCommit)
 		os.Exit(0)
 	}
 	configdir, _ = filepath.Abs(*paramConfigdir)
@@ -92,11 +93,14 @@ func main() {
 	log.SetOutput(logwriter)
 	defer logfile.Close()
 
+	// Print stack on panic
+	defer stackPrintOnPanic("main()")
+
 	// here we have a working log file
 	if configdir == "" {
 		flag.Usage()
 		flag.PrintDefaults()
-		log.Fatalf("-configdir is required.")
+		log.Fatalf("-configdir is required.\r\n")
 		return
 	}
 
@@ -106,17 +110,17 @@ func main() {
 		loginsfilename := filepath.Join(configdir, "logins.json")
 		err := loginsSt.OpenDB(loginsfilename)
 		if err != nil {
-			log.Printf("Can't open logins.json file : %s\n", err)
+			log.Printf("Can't open logins.json file : %s\r\n", err)
 			return
 		}
 		loginobj := logins.Login{Login: *adduser}
 
 		err = logins.AskAndSavePasswordForHTTPDigest(&loginsSt, loginobj, constRealm)
 		if err != nil {
-			log.Printf("Can't write logins.json file : %s\n", err)
+			log.Printf("Can't write logins.json file : %s\r\n", err)
 			return
 		}
-		log.Printf("Password for login '%s' saved to %s\n", *adduser, loginsfilename)
+		log.Printf("Password for login '%s' saved to %s\r\n", *adduser, loginsfilename)
 
 		return
 	}
@@ -129,13 +133,13 @@ func main() {
 	}
 	storageroot, err := filepath.Abs(*paramStorageroot)
 	if err != nil {
-		log.Printf("Can't get absolute path of storageroot: %s\n", err)
+		log.Printf("Can't get absolute path of directory 'storageroot': %s\r\n", err)
 		return
 	}
 
 	froot, err := openStoragerootRw(storageroot)
 	if err != nil {
-		log.Printf("Can't start server, storageroot rw error: %s\n", err)
+		log.Printf("Can't start server, storageroot rw error: %s\r\n", err)
 
 		// let the service start, it will wait for the storageroot attachment
 	} else {
@@ -155,7 +159,7 @@ func main() {
 	// where we started from?
 	rundir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Printf("Can't find starting directory of server executable (used readonly). %s\n", err)
+		log.Printf("Can't find starting directory of server executable (readonly). %s\r\n", err)
 		return
 	}
 	uploadserver.ConfigThisService.RunningFromDir = rundir
@@ -190,12 +194,26 @@ func main() {
 		chwithSignal := make(chan os.Signal, 1)
 		signal.Notify(chwithSignal, os.Interrupt)
 		s := <-chwithSignal
-		log.Printf("os.Interrupt %s recieved.", s)
+		log.Printf("os.Interrupt %s recieved.\r\n", s)
 
 	}
 
 	log.Println("uploadserver main() exited.")
 
+}
+
+func stackPrintOnPanic(where string) {
+	// on panic we will write to log file
+	if err := recover(); err != nil {
+		// no '\r' symbols in log line
+		// TODO(zavla): make structured log file?
+		log.Printf("PANIC: in %s\n, error: %s\n", where, err)
+		b := make([]byte, 2500) // enough buffer for stack trace text
+		n := runtime.Stack(b, true)
+		b = b[:n]
+		// output stack trace to a log
+		log.Printf("%d bytes of stack trace\n%s\nENDPANIC\r\n", n, string(b))
+	}
 }
 
 func openStoragerootRw(storageroot string) (*os.File, error) {
@@ -213,9 +231,9 @@ func openStoragerootRw(storageroot string) (*os.File, error) {
 }
 
 // loginCheck implements HTTP digest authorization scheme with additional header from server
-// that proves the server has the right password hash.
-// Clients may check this additional header to destinguish fake servers.
-func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
+// that proves that the server has the right password hash of a user password.
+// Clients may check this additional header to distinguish fake servers.
+func loginCheck(c *gin.Context, username string, loginsmap map[string]logins.Login) {
 	const op = "cmd/uploadserver.loginCheck()"
 	h := md5.New()
 	yyyy, mm, dd := time.Now().Date()
@@ -236,7 +254,6 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(&challenge)
 		c.Header("WWW-Authenticate", wwwauthenticate)
 		c.AbortWithStatus(http.StatusUnauthorized)
-		//c.Error(Error.E(op, nil, errNoError, Error.ErrKindInfoForUsers, "Header 'authorization' is empty."))
 		return
 	}
 	// here we have "Authorization" from client with some text.
@@ -247,7 +264,17 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 
 		return
 	}
-	creds.Method = c.Request.Method // client uses its Method in its hash, acording to specification
+
+	// we use login name from the URL and username from HTTP authentication
+	// don't allow stale HTTP authorization to access another user's profile
+	if username != creds.Username {
+		wwwauthenticate := httpDigestAuthentication.GenerateWWWAuthenticate(&challenge)
+		c.Header("WWW-Authenticate", wwwauthenticate)
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+
+	creds.Method = c.Request.Method // client uses its Method in its hash, according to specification
 
 	currlogin := logins.Login{}
 	currlogin, ok := loginsmap[creds.Username]
@@ -273,7 +300,8 @@ func loginCheck(c *gin.Context, loginsmap map[string]logins.Login) {
 
 	// server proves it has write password.
 	// TODO(zavla): prove on every client's request???
-	responsewant, _ := httpDigestAuthentication.GenerateResponseAuthorizationParameter(currlogin.Passwordhash, creds) // no errror, otherwise we can't be here
+	responsewant, _ := httpDigestAuthentication.GenerateResponseAuthorizationParameter(currlogin.Passwordhash, creds)
+	// no error, otherwise we can't be here
 	c.Header(httpDigestAuthentication.KeyProvePeerHasRightPasswordhash,
 		httpDigestAuthentication.ProveThatPeerHasRightPasswordhash(currlogin.Passwordhash, responsewant))
 
@@ -303,39 +331,53 @@ func fnginLogFormater(param gin.LogFormatterParams) string {
 
 }
 
-// createOneHTTPHandler initialises from uploadserver.Config a new HTTP Handler, which is gin.Engine.
+// createOneHTTPHandler initializes from uploadserver.Config a new HTTP Handler, which is gin.Engine.
 func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 	// gin settings
 	router := gin.New()
-	slSkipov := []string{
+
+	// accesse wil not be logged by gin
+	skipPaths := []string{
 		"/icons/back.gif",
 		"/icons/blank.gif",
 		"/icons/hand.right.gif",
 		"/icons/unknown.gif",
 		"/favicon.ico",
 	}
-	ginLoggerConfig := gin.LoggerConfig{Formatter: fnginLogFormater, Output: config.Logwriter, SkipPaths: slSkipov}
+	ginLoggerConfig := gin.LoggerConfig{
+		Formatter: fnginLogFormater,
+		Output:    config.Logwriter,
+		SkipPaths: skipPaths,
+	}
 	router.Use(gin.LoggerWithConfig(ginLoggerConfig), gin.RecoveryWithWriter(config.Logwriter))
 
-	// An authorization middleware. Gin executes this func for evey request.
+	// An authorization middleware. Gin executes this func for every request.
 	router.Use(func(c *gin.Context) {
 		const op = "Login required."
 		if strings.HasPrefix(c.Request.RequestURI, "/icons") ||
-			strings.HasPrefix(c.Request.RequestURI, "/debug") {
+			c.Request.RequestURI == "/favicon.ico" {
+			c.Next() // no login check
+			return   // no login check
+		}
+		loginFromURL := c.Param("login")
+		if loginFromURL != "" ||
+			// /debug/pprof is a fixed prefig from package net/http/pprof
+			strings.HasPrefix(c.Request.RequestURI, "/debug/pprof") {
+			// authorization.
+			username := loginFromURL
+			if username == "" {
+				username = "debug"
+			}
+			loginCheck(c, username, config.LoginsMap)
+
 			c.Next()
 			return
 		}
-		loginFromURL := c.Param("login")
-		if loginFromURL == "" && !config.AllowAnonymousUse {
-			c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"error": Error.ToUser(op, uploadserver.ErrAuthorizationFailed, "Service supports HTTP digest method. Specify a user name as a URL path. .../upload/usernamehere").Error()})
-
-			return
-		}
-		if loginFromURL != "" /*&& c.Request.Method != "GET"*/ {
-			// authorization.
-			loginCheck(c, config.LoginsMap)
-		}
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusNotAcceptable,
+			gin.H{
+				"error": Error.ToUser(op, uploadserver.ErrAuthorizationFailed, "Service supports HTTP digest method. Specify a user name as a URL path, ex. https://127.0.0.1:64000/upload/usernamehere").Error(),
+			},
+		)
 	})
 
 	// no anonymous upload
@@ -356,12 +398,12 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 
 	if config.Usepprof {
 
-		router.Handle("GET", "/debug/pprof", func(c *gin.Context) {
+		router.Handle("GET", "/debug/pprof/*profiletype", func(c *gin.Context) {
 			pprof.Index(c.Writer, c.Request)
 		})
-		router.Handle("GET", "/debug/profile", func(c *gin.Context) {
-			pprof.Profile(c.Writer, c.Request)
-		})
+		// router.Handle("GET", "/debug/:login/profile", func(c *gin.Context) {
+		// 	pprof.Profile(c.Writer, c.Request)
+		// })
 	}
 	return router
 }
@@ -380,10 +422,15 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 		time.Sleep(20 * time.Second)
 	}
 	log.Printf("service has read the logins.json file\r\n")
+
+	// create a gin.Engine
 	handler := createOneHTTPHandler(config)
 
 	//func
 	forOneInterface := func(netinterface string) {
+		// function runs in gorouting and may panic somehow
+		const op = "cmd/uploadserver.forOneInterface()"
+		defer stackPrintOnPanic(op)
 		log.Printf("trying service on net interface %s\r\n", netinterface)
 		for {
 			err := config.UpdateInterfacesConfigs(netinterface)
@@ -399,7 +446,7 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 			wa := &sync.WaitGroup{}
 			wa.Add(1)
 			go runHTTPserver(wa, handler, config, netinterface) // may fail if there is no disk or net interface.
-			// we wait and restart one more time
+			// we wait for http server to return and restart it more time
 			wa.Wait()
 			const period20sec = 20
 			log.Printf("service is waiting %d sec to restart HTTP server on interface %s\r\n", period20sec, netinterface)
@@ -407,6 +454,7 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 		}
 	}
 	for _, v := range config.IfConfigs {
+		// parallel http servers for every interface
 		go forOneInterface(v.Listenon) //uses common handler and config, but different interface/address.
 	}
 }
@@ -415,10 +463,12 @@ func endlessRunHTTPserver(config *uploadserver.Config) {
 func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserver.Config, listenon string) {
 	const op = "cmd/uploadserver.runHTTPserver()"
 	defer wa.Done() // after exit WorkGroup will be done.
+	defer stackPrintOnPanic(op)
 
 	var tlsConfig *tls.Config //not used so far
 
-	interfaceConfig := config.IfConfigs[listenon] // here we specified certificates files names.
+	// here we specified certificates files names.
+	interfaceConfig := config.IfConfigs[listenon]
 
 	s := &http.Server{
 		Addr:      interfaceConfig.Listenon,
@@ -434,9 +484,10 @@ func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserve
 		//MaxHeaderBytes: 1000,
 	}
 
-	log.Printf("service is listening on %s now\r\n", interfaceConfig.Listenon)
+	log.Printf("service is going to listen on %s now\r\n", interfaceConfig.Listenon)
 	err := s.ListenAndServeTLS(interfaceConfig.CertFile, interfaceConfig.KeyFile)
-	if err != http.ErrServerClosed { // expects error
+	if err != http.ErrServerClosed { // expects this error
+		// other errors go to log
 		log.Println(Error.E(op, err, errServiceExitedAbnormally, 0, ""))
 	}
 

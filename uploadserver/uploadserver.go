@@ -547,7 +547,7 @@ func ServeAnUpload(c *gin.Context) {
 		// httpOnly==true for the cookie to be unavailable for javascript api.
 		// path=="/upload" means "/upload" should be in URL path for this cookie to be sent to client.
 		// TODO(zavla): 300 => 5000 ?>?. what is SameSiteStrictMode, read https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site-00
-		c.SetCookie(liteimp.KeysessionID, newsessionID, 3600*8, "/upload", "", http.SameSiteStrictMode, true, true)
+		c.SetCookie(liteimp.KeysessionID, newsessionID, 3600*8, "/upload", "", true, true)
 
 		// c holds in its Context a session ID in KeyValue pair
 		c.Set(liteimp.KeysessionID, newsessionID)
@@ -587,7 +587,7 @@ func ServeAnUpload(c *gin.Context) {
 		retErr := Error.ToUser(op, errSessionEnded, "now such session "+strSessionID)
 		log.Println(logline(c, retErr.Error()))
 		// we set cookie in response header. -1 == delete cookie now.
-		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, true, true)
+		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", true, true)
 
 		// we set key/value pair in current context.
 		c.Set(liteimp.KeysessionID, "")
@@ -657,7 +657,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		jsonbytes, _ := json.MarshalIndent(&fromClient, "", " ")
 		helpmessage := "service expects from you JSON " + string(jsonbytes)
 		//
-		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, true, true) // clear cookie
+		c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", true, true) // clear cookie
 		c.JSON(http.StatusBadRequest, gin.H{"error": Error.ToUser(op, errClientRequestShouldBindToJSON, helpmessage).Error()})
 		return
 	}
@@ -725,7 +725,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 				// Here err!=nil means upload is now allowed
 
 				delete(clientsstates, strSessionID)
-				c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", http.SameSiteStrictMode, true, true) // clear cookie
+				c.SetCookie(liteimp.KeysessionID, "", -1, "/upload", "", true, true) // clear cookie
 				// c.Error(err)
 				log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", savedstate.name)))
 

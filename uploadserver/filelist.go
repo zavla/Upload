@@ -59,12 +59,22 @@ func GetFileList(c *gin.Context) {
 
 	}
 	stat, err := os.Stat(fullfspath)
-	if err != nil || !stat.IsDir() {
-		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Errorf("can't download a file").Error()})
-
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusOK, gin.H{"error": "no files yet"})
+		} else {
+			log.Printf("For user %s, error while reading his directory: %s\r\n", username, err)
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unexpected directory structure"})
+		}
 		return
 
 	}
+	if !stat.IsDir() {
+		log.Printf("For user %s, error while reading his directory: not a directory: %s\r\n", username, fullfspath)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unexpected directory structure"})
+		return
+	}
+
 	nameslist := fillnameslist(fullfspath, isnamefilter, reg)
 	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filelist.html"))
 	if err != nil {

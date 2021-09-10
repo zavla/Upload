@@ -190,7 +190,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 
-	reqctx, _ := context.WithTimeout(ctx, 3*time.Hour)
+	reqctx, reqcancell := context.WithTimeout(ctx, 3*time.Hour)
+	defer reqcancell() // will release resources of context if request completes before timeout
 	// creates http.Request
 	req, err := http.NewRequestWithContext(reqctx, "POST", where.ToURL, nil)
 

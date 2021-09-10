@@ -42,3 +42,5 @@ cmd/uploader/login.json
 cmd/uploader/login_https.json
 cmd/uploader/login_old.json
 cmd/uploader/logins_ftp.json
+cmd/uploadserver/uploadserver
+cmd/uploadserver/uploadserver.exe
