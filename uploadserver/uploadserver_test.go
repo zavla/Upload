@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/zavla/upload/fsdriver"
 )
 
@@ -64,7 +65,8 @@ func Test_consumeSourceChannel(t *testing.T) {
 			os.Remove(filepath.Join(tt.args.storagepath, tt.args.name))
 			done := make(chan struct{})
 			// fsdriver.OpenTwoCorrespondentFiles(tt.args.storagepath, tt.args.name, journalname)
-			go consumeSourceChannel(tt.args.chSource, tt.args.chResult, tt.args.storagepath, tt.args.name,
+			ctx := &gin.Context{}
+			go consumeSourceChannel(ctx, tt.args.chSource, tt.args.chResult, tt.args.storagepath, tt.args.name,
 				tt.args.destination,
 				done)
 			go tt.args.funcproducer(tt.args.chSource)

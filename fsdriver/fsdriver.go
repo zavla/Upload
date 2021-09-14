@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 
 	Error "github.com/zavla/upload/errstr"
+	"github.com/zavla/upload/liteimp"
 )
 
-const constwriteblocklen = (1 << 16) - 1
+const constwriteblocklen = 2 * ((1 << 16) - 1) //65535*2, two sectors at a time
 
 type currentAction byte
 
@@ -170,7 +171,7 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 	if os.IsNotExist(errstat) {
 		itsnew = true
 		// looks like we need to flush to disk after OpenFile.
-		// If uploadserver and uploader on the same computer new file can't be written at once.
+		// If uploadserver and uploader are on the same computer then the new file can't be written at once.
 	}
 	wa, errwa = openToAppend(dir, name)
 	if errwa != nil {
@@ -180,14 +181,6 @@ func OpenTwoCorrespondentFiles(dir, name, namepart string) (ver uint32, wp, wa *
 		errwa = wa.Sync()
 
 	}
-	// if os.IsNotExist(errstat) {
-	// 	// if this is a new file we set a timestamp 1986
-	// 	nowt := time.Now()
-	// 	mtime := time.Date(1980, time.February, 1, 0, 0, 1, 1, time.Local)
-	// 	// set old date to indicate that a file is in progress
-	// 	// Other tools from "DBA backups tool set" should respect this indication.
-	// 	_ = os.Chtimes(waname, nowt, mtime)
-	// }
 	return //named ver, wp, wa, errwp, errwa
 }
 
@@ -222,13 +215,15 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 				return totalbyteswritten, err
 			}
 
+			// write to actual file
 			nhavewritten, err := wa.Write(newbytes[from:to])
-			// may be that err == nil, it when FSD (file system driver) accepted data but still holds it in memory till flush
+
+			// may be that err == nil, it is when FSD (file system driver) accepted data but still holds it in memory till flush
 			if err != nil {
 				// Write of current block (hunk) failed.
 				// Journal file will not have step2 record.
 
-				return totalbyteswritten + int64(nhavewritten), err // file reverted, and will continue after failer cause elumination (disk space freed for e.x.).
+				return totalbyteswritten + int64(nhavewritten), err // file will be reverted, continue after disk error elimination (disk space freed for e.x.).
 			}
 
 			// add step2 into journal = "write end"
@@ -239,7 +234,7 @@ func AddBytesToFile(wa, wp *os.File, newbytes []byte, ver uint32, destinationrec
 				destinationrecord.Count = 0
 				return totalbyteswritten, err // log file failure. (no free disk space for e.x.)
 			}
-			destinationrecord.Startoffset += int64(nhavewritten) // finaly adds writen bytes count to offset
+			destinationrecord.Startoffset += int64(nhavewritten) // finally adds written bytes count to offset
 			totalbyteswritten += int64(nhavewritten)
 		}
 
@@ -301,6 +296,9 @@ func GetJournalFileVersion(wp io.Reader) (uint32, error) {
 // MayUpload analize journal file for current state.
 func MayUpload(storagepath string, origname string, nameNotComplete string) (FileState, error) {
 	const op = "fsdriver.MayUpload()"
+
+	liteimp.Debugprint("diagnostic! : origname=%s, \r\n", origname)
+
 	namepart := GetPartialJournalFileName(nameNotComplete)
 
 	name := nameNotComplete
@@ -309,7 +307,7 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 	if !os.IsNotExist(errOrig) {
 		// Original file exists, we do not allow upload
 		return *NewFileState(0, nil, 0),
-			Error.E(op, errOrig, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "a file is aleady complete.")
+			Error.E(op, errOrig, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "a file is already complete.")
 	}
 
 	wastat, err := os.Stat(filepath.Join(storagepath, name))
@@ -318,6 +316,8 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 		return *NewFileState(0, nil, 0), nil
 	}
 	if err != nil {
+		log.Printf("file os.Stat() error: %s, error=%s.\r\n", name, err)
+
 		// can't get stat for actual file. Who knows why, error.
 		return *NewFileState(0, nil, 0),
 			Error.E(op, err, errForbidenToUpdateAFile, Error.ErrKindInfoForUsers, "")
@@ -326,8 +326,10 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 	// next read journal file
 	wp, err := openToRead(storagepath, namepart)
 	if err != nil {
+		log.Printf("file openToRead() error: %s, error=%s.\r\n", namepart, err)
+
 		// err != nil means no log file exists or read error.
-		// These states do not allow file change.
+		// This state do not allow actual file change.
 		return *NewFileState(wastat.Size(), nil, wastat.Size()),
 			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
@@ -335,11 +337,13 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 
 	ver, err := GetJournalFileVersion(wp)
 	if err != nil { // unsupported version or read error
+		log.Printf("GetJournalFileVersion() error: %s, error=%s.\r\n", namepart, err)
+
 		return *NewFileState(0, nil, 0),
 			Error.E(op, err, errForbidenToUpdateAFile, 0, "")
 	}
 
-	var fromLog FileState
+	var journal FileState
 	var journaloffset int64 // journal file position
 	var errlog error
 
@@ -348,12 +352,14 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 	switch ver {
 	case structversion1:
 		// here we read journal file
-		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer1(ver, wp)
+		journal, journaloffset, errlog = ReadCurrentStateFromJournalVer1(ver, wp)
 
 	case structversion2:
 		// here we read journal file
-		fromLog, journaloffset, errlog = ReadCurrentStateFromJournalVer2(ver, wp)
+		journal, journaloffset, errlog = ReadCurrentStateFromJournalVer2(ver, wp)
 	default: // unknown version
+		log.Printf("journal has bad version: %s, journal=%#v.\r\n", namepart, journal)
+
 		return *NewFileState(0, nil, 0), Error.E(op, err, errPartialFileVersionTagUnsupported, 0, "")
 	}
 
@@ -363,7 +369,9 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 		if errlogError.Code == errPartialFileReadingError {
 			// Here errlog indicates we can not read journal file.
 			// can't do anything with journal file, even reading.
-			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.FileSize),
+			log.Printf("journal read error: %s, error=%s, journal=%#v.\r\n", namepart, errlog, journal)
+
+			return *NewFileState(journal.FileSize, journal.Sha1, journal.FileSize),
 				errlog
 		}
 
@@ -372,10 +380,12 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 		//		a case when a journal file has some gabage at the end;
 		// Actual file needs repare:
 		//		a case when actual file holds bytes and journal doesn't hold 'write ended' record.
-		if fromLog.FileSize != 0 && // log at least has filesize
-			fromLog.FileSize > fromLog.Startoffset && // actual file is not complete
-			fromLog.Startoffset <= wastat.Size() && // journal Startoffset is inside expected size
-			wastat.Size()-fromLog.Startoffset <= constwriteblocklen { // the difference between journal and actual file is not big
+		if journal.FileSize != 0 && // log at least has filesize
+			journal.FileSize > journal.Startoffset && // actual file is not complete
+			journal.Startoffset <= wastat.Size() && // journal Startoffset is inside expected size
+			wastat.Size()-journal.Startoffset <= constwriteblocklen { // the difference between journal and actual file is not big
+
+			log.Printf("the difference between journal and actual file is not big: %s, wastat.Size()=%d bytes, journal=%#v.\r\n", name, wastat.Size(), journal)
 
 			// expected offset from journal file is equal to actual file size
 			// This is a case when a journal file has some bad or incomplete records at the end.
@@ -391,23 +401,23 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 
 						// Here the journal is repaired.
 						// One may continue to upload the actual file.
-						if fromLog.Startoffset == wastat.Size() {
+						if journal.Startoffset == wastat.Size() {
 							// journal repaired. Actual file os OK.
-							return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+							return *NewFileState(journal.FileSize, journal.Sha1, journal.Startoffset), nil
 
 						}
 
-						if fromLog.Startoffset < wastat.Size() { // a case when journal file doesn't have 'write ended' record.
+						if journal.Startoffset < wastat.Size() { // a case when journal file doesn't have 'write ended' record.
 							// the last block of actual file may not be trusted ??
 							wa, err := os.OpenFile(filepath.Join(storagepath, name), os.O_RDWR, 0660)
 							if err == nil { // if we opened actual file (err==nil)
 								defer wa.Close() // second Close on a file is allowed
-								if err = wa.Truncate(fromLog.Startoffset); err == nil {
+								if err = wa.Truncate(journal.Startoffset); err == nil {
 									err = wa.Close()
 									if err == nil {
 										// we truncated actual file.
-										// we recovered from uncertainity.
-										return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset), nil
+										// we recovered from uncertainty.
+										return *NewFileState(journal.FileSize, journal.Sha1, journal.Startoffset), nil
 									}
 								}
 							}
@@ -416,41 +426,51 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 				}
 			}
 
+			log.Printf("we cannot repare - the difference between journal and actual file is not big: %s, error=%s, wastat.Size()=%d bytes, journal=%#v.\r\n", name, err, wastat.Size(), journal)
+
 		}
 
-		// here journal file is considdered to be in corrupted state
-		return *NewFileState(wastat.Size(), fromLog.Sha1, wastat.Size()),
-			Error.E(op, err, errPartialFileCorrupted, 0, "") // error in log file blocks updates to actual file
+		log.Printf("journal file is considered to be in corrupted state: %s, wastat.Size()=%d bytes, journal=%#v.\r\n", name, wastat.Size(), journal)
+
+		// here journal file is considered to be in corrupted state
+		return *NewFileState(wastat.Size(), journal.Sha1, wastat.Size()),
+			Error.E(op, err, errPartialFileCorrupted, 0, "") // error in journal file blocks updates to actual file
 	}
 	// Here the journal file has been read with no error.
-	// Here struct fromLog has last correct offset of the actual file being uploaded, fromLog.Startoffset.
-	// Lets consider the journal file fromLog.FileSize a correct expected actual file size.
+	// Here struct 'journal' has last correct offset of the actual file being uploaded, journal.Startoffset.
+	// Lets consider the journal file journal.FileSize is a correct actual file size.
 
-	if wastat.Size() > fromLog.FileSize {
+	if wastat.Size() > journal.FileSize {
 		// actual file already bigger then expected!
 		// Impossible unless a user has intervened or journal file is bad.
-		log.Printf("Аctual file already bigger then expected: %s has %d bytes, journal says %d bytes.\n", name, wastat.Size(), fromLog.Startoffset)
-		return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
+		log.Printf("Actual file is already bigger then expected: %s, wastat.Size()=%d bytes, journal.Startoffset()=%d bytes.\r\n", name, wastat.Size(), journal.Startoffset)
+		return *NewFileState(wastat.Size(), journal.Sha1, journal.Startoffset),
 			Error.E(op, err, errActualFileAlreadyBiggerThanExpacted, 0, "")
 	}
 
-	if wastat.Size() == fromLog.FileSize {
+	if wastat.Size() == journal.FileSize {
 
-		if fromLog.Startoffset == fromLog.FileSize {
-			// The actual file is correct and completly uploaded, but partial journal file still exists.
+		if journal.Startoffset == journal.FileSize {
+			log.Printf("Actual file is correct but journal exists: %s, wastat.Size()=%d bytes, journal.Startoffset()=%d bytes.\r\n", name, wastat.Size(), journal.Startoffset)
+
+			// The actual file is correct and completely uploaded, but partial journal file still exists.
 			// Return an error as a special indication of this inconsistency, no need to allow further upload.
-			return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+			return *NewFileState(journal.FileSize, journal.Sha1, journal.Startoffset),
 				Error.E(op, err, errActualFileIsAlreadyCompleteButJournalFileExists, 0, "")
 		}
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+
+		log.Printf("Actual file is correct but journal is bad: %s, wastat.Size()=%d bytes, journal=%#v .\r\n", name, wastat.Size(), journal)
+		return *NewFileState(journal.FileSize, journal.Sha1, journal.Startoffset),
 			Error.E(op, err, errActualFileIsAlreadyCompleteButJournalFileIsInconsistent, 0, "")
 
 	}
-	// CASE wastat.Size() < fromLog.FileSize
-	if wastat.Size() == fromLog.Startoffset {
+	// below is a case with wastat.Size() < fromLog.FileSize
+
+	if wastat.Size() == journal.Startoffset {
+		// OK
 		// Upload may continue, current actual file size corresponds to saved offset in journal file.
 		// Return no error.
-		return *NewFileState(fromLog.FileSize, fromLog.Sha1, fromLog.Startoffset),
+		return *NewFileState(journal.FileSize, journal.Sha1, journal.Startoffset),
 			nil
 	}
 	// Otherwise we need to read content of actual file and
@@ -458,7 +478,9 @@ func MayUpload(storagepath string, origname string, nameNotComplete string) (Fil
 	// to find the maximum correct range in actual file.
 
 	// TODO(zavla): run thorough content compare with MD5 cheksums of blocks
-	return *NewFileState(wastat.Size(), fromLog.Sha1, fromLog.Startoffset),
+	log.Printf("Actual file is bad, journal is bad: %s, wastat.Size()=%d bytes, journal=%#v.\r\n", name, wastat.Size(), journal)
+
+	return *NewFileState(wastat.Size(), journal.Sha1, journal.Startoffset),
 		Error.E(op, err, errActualFileNeedsRepare, 0, "")
 }
 
@@ -486,7 +508,7 @@ func DecodePartialFile(r io.Reader, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "File has a header with version: %x\n", ver)
+	fmt.Fprintf(w, "File has a header with version: %x\r\n", ver)
 	switch ver {
 	case structversion2:
 		err = decodePartialFileVer2(r, w)
@@ -507,7 +529,7 @@ func decodePartialFileVer2(r io.Reader, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%#v\n", startstruct)
+	fmt.Fprintf(w, "%#v\r\n", startstruct)
 
 	for {
 		err := binary.Read(r, binary.LittleEndian, &record)
@@ -518,13 +540,13 @@ func decodePartialFileVer2(r io.Reader, w io.Writer) error {
 			// there are some bytes
 			b := make([]byte, binary.Size(record))
 			r.Read(b)
-			fmt.Fprintf(w, "%x\n", b)
+			fmt.Fprintf(w, "%x\r\n", b)
 			return err
 		}
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "%#v\n", record)
+		fmt.Fprintf(w, "%#v\r\n", record)
 
 	}
 

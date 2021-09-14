@@ -99,7 +99,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 
 		for { // reading records one by one
 			err := binary.Read(wp, binary.LittleEndian, &currrecord)
-			// next lines are dealing with bad errors while reading. But EOF is special, it means we succeded is reading.
+			// next lines are dealing with bad errors while reading. But EOF is special, it means we succeeded is reading.
 			if err == io.ErrUnexpectedEOF { // read ended unexpectedly
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
@@ -115,7 +115,7 @@ func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileSta
 			// next lines are dealing with offsets in current record, decides if this record is good
 			switch {
 			case currrecord.Startoffset > retState.FileSize:
-				// current record do not corresond to expected file size
+				// current record do not correspond to expected file size
 				return *retState.Setoffset(lastsuccessrecord.Startoffset + lastsuccessrecord.Count),
 					correctrecordoffset,
 					Error.E(op, err, errPartialFileCorrupted, 0, "Startoffset in journal size already exceeded expected file size.")

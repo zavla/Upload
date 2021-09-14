@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,6 +85,20 @@ type writeresult struct {
 	count    int64
 	err      error
 	slerrors []error
+}
+
+func stackPrintOnPanic(c *gin.Context, where string) {
+	// on panic we will write to log file
+	if err := recover(); err != nil {
+		// no '\r' symbols in log line
+		// TODO(zavla): make structured log file?
+		log.Println(logline(c, fmt.Sprintf("PANIC: in %s\n, error: %s\n", where, err)))
+		b := make([]byte, 2500) // enough buffer for stack trace text
+		n := runtime.Stack(b, true)
+		b = b[:n]
+		// output stack trace to a log
+		log.Println(logline(c, fmt.Sprintf("%d bytes of stack trace\n%s\nENDPANIC\r\n", n, string(b))))
+	}
 }
 
 func loginsToMap(loginsstruct logins.Logins) map[string]logins.Login {
@@ -265,7 +280,8 @@ func fillRecieverChannel(c io.ReadCloser,
 					nbytessent += int64(bigBufLen)
 				}
 			}
-			Debugprint("nbytessent = %d", nbytessent)
+
+			Debugprint("in fillRecieverChannel() nbytessent = %d", nbytessent)
 			return nil // success reading
 		}
 
@@ -278,6 +294,7 @@ func fillRecieverChannel(c io.ReadCloser,
 // Adds bytes[] to a file using transaction log file.
 // Closes files at the return.
 func consumeSourceChannel(
+	c *gin.Context,
 	chSource chan []byte,
 	chResult chan<- writeresult,
 	storagepath, name string,
@@ -286,21 +303,26 @@ func consumeSourceChannel(
 
 	const op = "uploadserver.consumeSourceChannel"
 
-	// to begin open both destination files
+	defer stackPrintOnPanic(c, op)
+
+	// to begin open both destination files: the journal file and the actual file
 	namelog := fsdriver.GetPartialJournalFileName(name)
 	ver, wp, wa, errp, erra := fsdriver.OpenTwoCorrespondentFiles(storagepath, name, namelog)
 	// wp = transaction log file
 	// wa = actual file
 	if errp != nil {
+		// files were not opened
 		chResult <- writeresult{0, errp, nil}
 		return
 	}
-	// (os.File).Close may return err, means disk failure after File System Driver got bytes into its
+	// (os.File).Close may return err, that means disk failure after File System Driver got bytes into its
 	// memmory with successfull Write().
-	// This is second (defered) close in case of panic.
+	// This is second (defered) close for the case of panic.
 	defer wp.Close()
 
 	if erra != nil {
+		wp.Close() // wp was opened, close it
+		// wa was not opened
 		chResult <- writeresult{0, Error.E(op, erra, 0, Error.ErrUseKindFromBaseError, "from fsdriver.OpenTwoCorrespondentFiles"), nil}
 		return
 	}
@@ -310,11 +332,14 @@ func consumeSourceChannel(
 	// make sure file size equals to destination.startoffset
 	wastat, err := wa.Stat()
 	if err != nil {
+		// some error, even can't get stats of a file
+		closeFiles(wa, wp)
 		chResult <- writeresult{0, err, nil}
 		return
 	}
 	if wastat.Size() != destination.Startoffset {
-		chResult <- writeresult{0, errors.New("startoffest not equal to existing file size"), nil}
+		closeFiles(wa, wp)
+		chResult <- writeresult{0, errors.New("startoffset not equal to existing file size"), nil}
 		return
 	}
 	nextWrite := int64(1000000)
@@ -334,10 +359,20 @@ func consumeSourceChannel(
 		}
 
 		if err != nil || errp != nil || erra != nil {
-			// Disk failure while Write().
-			// Make explicit Close().
+			// Here we have Disk failure while Write().
+			// Make explicit Close(), close receiver's 'done' channel.
 
-			close(done) // indicate to reciever giveup recieving
+			close(done) // indicate to receiver give up receiving
+
+			if err != nil {
+				log.Println(logline(c, fmt.Sprintf("disk error in AddBytesToFile(), err=%s", err)))
+			}
+			if errp != nil {
+				log.Println(logline(c, fmt.Sprintf("disk error in AddBytesToFile(), errp=%s", errp)))
+			}
+			if erra != nil {
+				log.Println(logline(c, fmt.Sprintf("disk error in AddBytesToFile(), erra=%s", erra)))
+			}
 
 			slerrors := closeFiles(wa, wp)
 			// Here we are not sure how much File System Driver has written on disk.
@@ -349,12 +384,24 @@ func consumeSourceChannel(
 
 	}
 
-	Debugprint("nbyteswritten = %d\n", nbyteswritten)
+	Debugprint("in consumeSourceChannel() nbyteswritten = %d\n", nbyteswritten)
 
-	slerrors := closeFiles(wa, wp) // ignore Close error because there was a Write error.
+	// do not interrupt this thread
+	runtime.LockOSThread() // sometime os.Rename can't rename files because syncing is done in another thread than the rest of this func.
+
+	errp = wp.Sync() // journal file sync
+	erra = wa.Sync() // actual file sync
+	if errp != nil {
+		log.Println(logline(c, fmt.Sprintf("disk error in AddBytesToFile(), last Sync(), errp=%s", errp)))
+	}
+	if erra != nil {
+		log.Println(logline(c, fmt.Sprintf("disk error in AddBytesToFile(), last Sync(), erra=%s", erra)))
+	}
+
+	slerrors := closeFiles(wa, wp)
 
 	chResult <- writeresult{nbyteswritten, nil, slerrors}
-
+	runtime.UnlockOSThread()
 }
 
 // startWriteStartRecieveAndWait runs writing G, runs recieving G, and waits for them to complete.
@@ -367,6 +414,8 @@ func startWriteStartRecieveAndWait(c *gin.Context, cRequestBody io.ReadCloser,
 	whatwhere fsdriver.JournalRecord) (writeresult, error) {
 
 	const op = "uploadserver.startWriteStartRecieveAndWait()"
+
+	defer stackPrintOnPanic(c, op)
 
 	expectedcount := whatwhere.Count
 	if expectedcount < 0 { // should never happen, why we expect more than filesize
@@ -385,7 +434,7 @@ func startWriteStartRecieveAndWait(c *gin.Context, cRequestBody io.ReadCloser,
 
 	// Starts goroutine in background for write operations for this connection.
 	// writeChanTo will write while we are recieving.
-	go consumeSourceChannel(chReciever, chWriteResult, dir, name, whatwhere, done)
+	go consumeSourceChannel(c, chReciever, chWriteResult, dir, name, whatwhere, done)
 
 	bufferProperties := bufferConfig{Multiplicity: 65535, BlocksCount: 1}
 
@@ -757,7 +806,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 			}
 		}
 
-		// Rename journal file. Add string representaion of sha1 to the journal filename.
+		// Rename journal file. Add string representation of sha1 to the journal filename.
 
 		err = eventOnSuccess(c, savedstate.storagepath, savedstate.name, savedstate.nameNotComplete, factsha1)
 		if err != nil {

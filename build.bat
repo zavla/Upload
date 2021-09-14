@@ -6,5 +6,5 @@ go build -v -ldflags="-X 'main.gitCommit=%gg%'"
 @cd ..\..
 
 cd .\cmd\uploadserver 
-go build -v -ldflags="-X 'main.gitCommit=%gg%'" 
+go build -v -ldflags="-X 'main.gitCommit=%gg%'" -tags=debugprint
 @cd ..\..
