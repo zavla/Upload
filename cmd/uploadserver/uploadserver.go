@@ -80,10 +80,11 @@ func main() {
 
 	if *paramLogname == "" {
 		logwriter = os.Stdout
+		logfile = os.Stdout
 	} else {
 		logname, _ = filepath.Abs(*paramLogname)
 		var err error
-		logfile, err = os.OpenFile(logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, os.ModeAppend)
+		logfile, err = os.OpenFile(logname, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0660)
 		if err != nil { // do not start without log file
 			log.Fatal(Error.E(op, err, errCantWriteLogFile, 0, logname))
 		}
@@ -153,6 +154,7 @@ func main() {
 	if bindToAddress2 != "" {
 		sladdr = append(sladdr, bindToAddress2)
 	}
+	uploadserver.ConfigThisService.Logfile = logfile
 	uploadserver.ConfigThisService.BindAddress = sladdr      // creates a slice of listenon addresses
 	uploadserver.ConfigThisService.Storageroot = storageroot // the root directory
 
@@ -217,11 +219,11 @@ func stackPrintOnPanic(where string) {
 }
 
 func openStoragerootRw(storageroot string) (*os.File, error) {
-	mkerr := os.MkdirAll(storageroot, 0400)
+	mkerr := os.MkdirAll(storageroot, 0660)
 	if mkerr != nil {
 		return nil, mkerr
 	}
-	d, err := os.OpenFile(storageroot, os.O_RDONLY, 0400)
+	d, err := os.OpenFile(storageroot, os.O_RDONLY, 0660)
 
 	if err != nil {
 		return nil, err
@@ -279,7 +281,8 @@ func loginCheck(c *gin.Context, username string, loginsmap map[string]logins.Log
 	currlogin := logins.Login{}
 	currlogin, ok := loginsmap[creds.Username]
 	if !ok {
-		c.AbortWithStatus(http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Username not fount"})
+		c.Abort()
 		c.Error(Error.E(op, err, uploadserver.ErrAuthorizationFailed, 0, fmt.Sprintf("username not found: %s", creds.Username)))
 
 		return
@@ -362,7 +365,8 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 		loginFromURL := c.Param("login")
 		if loginFromURL != "" ||
 			// /debug/pprof is a fixed prefig from package net/http/pprof
-			strings.HasPrefix(c.Request.RequestURI, "/debug/pprof") {
+			strings.HasPrefix(c.Request.RequestURI, "/debug/pprof") ||
+			strings.HasPrefix(c.Request.RequestURI, "/log") {
 			// authorization.
 			username := loginFromURL
 			if username == "" {
@@ -391,6 +395,7 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 
 		iserve.ServeHTTP(c.Writer, c.Request)
 	})
+	router.Handle("GET", "/log", uploadserver.GetLogContent)
 	router.Handle("GET", "/upload/:login/*path", uploadserver.GetFileList)
 	router.Handle("GET", "/upload/:login", uploadserver.GetFileList)
 

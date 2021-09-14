@@ -3,6 +3,7 @@ package uploadserver
 import (
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -78,7 +79,7 @@ func GetFileList(c *gin.Context) {
 	nameslist := fillnameslist(fullfspath, isnamefilter, reg)
 	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filelist.html"))
 	if err != nil {
-		log.Printf("%s\n", err)
+		log.Printf("%s\r\n", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("can't parse html template ./htmltemplates/filelist.html : %s", err)})
 
 		return
@@ -96,11 +97,72 @@ func GetFileList(c *gin.Context) {
 	}
 	err = tmpl.Execute(c.Writer, vtopage)
 	if err != nil {
-		log.Printf("%s\n", err)
+		log.Printf("%s\r\n", err)
 		c.JSON(http.StatusOK, gin.H{"error": fmt.Errorf("html template failed to execute. : %s", err)})
 		return
 	}
 
+}
+
+func findDateInLog(r io.ReaderAt, date time.Time, offset1, filesize int64) (retoffset int64, err error) {
+
+	retoffset = 0
+	return
+}
+
+func GetLogContent(c *gin.Context) {
+	if ConfigThisService.Logfile == os.Stdout {
+		c.JSON(http.StatusOK, gin.H{"error": "no log file in service setup"})
+		return
+	}
+	// sync log
+	_ = ConfigThisService.Logfile.Sync() // ignore error
+
+	offset := int64(0)
+	fromstring := c.DefaultQuery("from", time.Now().AddDate(0, 0, -10).Format(time.RFC3339))
+	fromdate, err := time.Parse(time.RFC3339, fromstring)
+
+	if err == nil {
+		stat, _ := ConfigThisService.Logfile.Stat()
+		logsize := stat.Size()
+		// with fromstring lets find offset
+		offset, _ = findDateInLog(ConfigThisService.Logfile, fromdate, 0, logsize)
+
+	}
+
+	const meg = 1000000
+	b := make([]byte, meg)
+	sectreader := io.NewSectionReader(ConfigThisService.Logfile, offset, meg)
+	n, err := sectreader.Read(b)
+	if err != nil && err != io.EOF {
+		log.Printf("log file read error: %s\r\n", err)
+
+		c.JSON(http.StatusOK, gin.H{"error": "cannot display log file: read error"})
+		return
+
+	}
+	b = b[0:n]
+	onpage := struct {
+		Filename string
+		Content  string
+	}{ConfigThisService.Logfile.Name(), string(b)}
+
+	tmpl, err := template.ParseFiles(filepath.Join(ConfigThisService.RunningFromDir, "htmltemplates/filecontent.html"))
+	if err != nil {
+		log.Printf("template.ParseFiles() error: %s\r\n", err)
+
+		c.JSON(http.StatusOK, gin.H{"error": "cannot display log file: template read error"})
+		return
+
+	}
+	err = tmpl.Execute(c.Writer, onpage)
+	if err != nil {
+		log.Printf("template error: %s\r\n", err)
+
+		c.JSON(http.StatusOK, gin.H{"error": "cannot display log file: template error"})
+		return
+
+	}
 }
 
 func fillnameslist(storagepath string, isnamefilter bool, reg *regexp.Regexp) []smallinf {

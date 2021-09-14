@@ -50,6 +50,7 @@ type interfaceconfig struct {
 // Config is a type that hold all the configuration of this service.
 type Config struct {
 	Logwriter io.Writer
+	Logfile   *os.File
 	Configdir string
 	// BindAddress is an address of this service
 	BindAddress []string

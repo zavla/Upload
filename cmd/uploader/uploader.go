@@ -263,7 +263,7 @@ func main() {
 
 	if mainCtx.Err() == nil {
 
-		log.Println("Normal exit.")
+		//log.Println("Normal exit.")
 	}
 }
 
