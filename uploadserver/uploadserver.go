@@ -547,7 +547,7 @@ func ServeAnUpload(c *gin.Context) {
 	// 	return // client should make a new request
 	// }
 
-	// Here a user is when it has logined in.
+	// Here a user is when it has logged in.
 
 	if errNoSessionIDCookie != nil || strSessionID == "" || lcontent == 0 {
 		// Here we have no previous session ID. Only new files expected from client.
@@ -578,6 +578,19 @@ func ServeAnUpload(c *gin.Context) {
 		whatIsInFile, err := fsdriver.MayUpload(userquery.storagepath, userquery.name, userquery.nameNotComplete)
 		if err != nil {
 
+			if fsdriver.MayRepare(err) {
+				ok, errComp := fsdriver.CompareSha1(userquery.storagepath, userquery.nameNotComplete, whatIsInFile.Sha1, emptysha1[:])
+				if errComp == nil && ok {
+					// on success event
+					err = eventOnSuccess(c, userquery.storagepath, userquery.name, userquery.nameNotComplete, whatIsInFile.Sha1)
+					if err != nil {
+						log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
+					}
+
+				}
+
+			}
+
 			log.Println(logline(c, fmt.Sprintf("upload is not allowed %s", lockobject)))
 
 			c.JSON(http.StatusForbidden,
@@ -588,7 +601,7 @@ func ServeAnUpload(c *gin.Context) {
 		}
 		// here we allow upload!
 
-		// We set a cookie , next request from with client will come with this session cookie.
+		// We set a NEW cookie , next request from this client will come with this session cookie.
 		// Generate new cookie that represents session number for current file upload. New file means new ID.
 		newsessionID := uuid.New().String()
 		//log.Println(logline(c, fmt.Sprintf("new session ID %s", newsessionID)))
@@ -614,8 +627,6 @@ func ServeAnUpload(c *gin.Context) {
 		}
 		c.Request.Body.Close() // try to free a connection because client may be sending a big file?
 		c.JSON(http.StatusConflict, *convertFileStateToJSONFileStatus(whatIsInFile))
-
-		//requestedAnUpload(c, newsessionID) // recieves new files only. Doesn't reqiere special client.
 
 	} else { // a client has send a session cookie
 		// lets find current client session state by session cookie
@@ -793,7 +804,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 		// Next check fact sha1 with expected sha1 if it was given.
 		factsha1, err := fsdriver.GetFileSha1(savedstate.storagepath, savedstate.nameNotComplete)
 		if err != nil {
-			log.Println(logline(c, fmt.Sprintf("Can't compute sha1 for the file %s. %s.", savedstate.nameNotComplete, err)))
+			log.Println(logline(c, fmt.Sprintf("Error while computing SHA1 for the file %s, error %s.", savedstate.nameNotComplete, err)))
 		}
 		wantsha1 := whatIsInFile.Sha1
 		if !bytes.Equal(wantsha1, emptysha1[:]) {
@@ -801,7 +812,7 @@ func requestedAnUploadContinueUpload(c *gin.Context, savedstate stateOfFileUploa
 
 			if !bytes.Equal(factsha1, wantsha1) {
 				// sha1 differs!!!
-				log.Println(logline(c, fmt.Sprintf("check sha1 failed. want = %x, has = %x.", wantsha1, factsha1)))
+				log.Println(logline(c, fmt.Sprintf("SHA1 failed, want = %x, has = %x, file %s", wantsha1, factsha1, savedstate.nameNotComplete)))
 				c.JSON(http.StatusExpectationFailed, gin.H{"error": Error.ToUser(op, errSha1CheckFailed, "A file is complete but SHA1 is incorrect. It's an error.").Error()})
 				return
 			}
@@ -980,6 +991,7 @@ func eventOnSuccess(c *gin.Context, storagepath, name string, nameNotComplete st
 		if err != nil {
 			log.Println(logline(c, fmt.Sprintf("rename failed from %s to %s: %s", nameNotComplete, name, err)))
 		}
+		log.Println(logline(c, fmt.Sprintf("OK SHA1 %x, file %s", factsha1, name)))
 
 	} else {
 		// user supplied action

@@ -15,6 +15,12 @@
 * client uploader stores user password in DPAPI if on Windows.
 * client side may also upload to a ftp server.
 * rotation of backup files accomplished by standalone command [DeleteArchivedBackups](https://github.com/zavla/DeleteArchivedBackups) that you run on server side from a scheduler.
+* has a readonly web interface:  
+***Web access***
+** https://....../upload/:username  
+** https://....../log  
+** https://....../debug/pprof  
+
 
 #### To download a service:
 ~~~
@@ -73,4 +79,44 @@ uploadserver -adduser name -config dir
     	storage root path for files.
   -version version
     	print version
+~~~
+
+#### API Example
+~~~
+func ExampleSendAFile() {
+	// a jar to hold our cookies
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+
+	// specify where to connect
+	config := uploadclient.ConnectConfig{
+		ToURL:    "https://127.0.0.1:64000/upload/testuser",
+		Password: "testuser",
+		//PasswordHash: string, // you better to use a hash of a password
+		Username:           "testuser",
+		InsecureSkipVerify: true, // skips certificates chain test, don't use 'true' in production, of course use a CAPool!
+		//CApool: *x509.CertPool, // a root CA public certificate that signed a service's certificate
+
+	}
+
+	// use context to have a cancel of a long running upload process
+	ctx, callmetofreeresources := context.WithDeadline(
+		context.Background(),
+		time.Now().Add(time.Second*10),
+	)
+	defer callmetofreeresources()
+
+	const filename = "./testdata/testfile.txt"
+
+	// compute sha1
+	sha1file := sha1get(filename)
+
+	err := uploadclient.SendAFile(ctx, &config, filename, jar, sha1file)
+	if err != nil {
+		println(err.Error())
+		return
+	}
+	println("Normal OK:")
+	// Output:
+	// Normal OK:
+}
 ~~~

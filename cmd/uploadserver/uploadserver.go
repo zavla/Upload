@@ -295,7 +295,8 @@ func loginCheck(c *gin.Context, username string, loginsmap map[string]logins.Log
 		return
 	}
 	if !access {
-		c.AbortWithStatus(http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "password failed"})
+		c.Abort()
 		c.Error(Error.E(op, err, uploadserver.ErrAuthorizationFailed, 0, fmt.Sprintf("password failed for user: %s", creds.Username)))
 		return
 	}
@@ -322,7 +323,7 @@ func fnginLogFormater(param gin.LogFormatterParams) string {
 	if err != nil {
 		paramPathUnEsc = param.Path
 	}
-	return fmt.Sprintf("[GIN] %v| %3d| %11v| %13s|%4s| %s| %s\n",
+	return fmt.Sprintf("[UPL] %v| %3d| %11v| %13s|%4s| %s| %s\n",
 		param.TimeStamp.Format("2006/01/02 15:04:05"),
 		param.StatusCode,
 		param.Latency,
@@ -371,6 +372,13 @@ func createOneHTTPHandler(config *uploadserver.Config) *gin.Engine {
 			username := loginFromURL
 			if username == "" {
 				username = "debug"
+				// builtin debug user, to disable it create a user 'debug' with your password
+				if _, ok := config.LoginsMap[username]; !ok {
+					config.LoginsMap[username] = logins.Login{
+						Login:        username,
+						Passwordhash: "756b1782d6ddbaacc1b72f68d7428485",
+					}
+				}
 			}
 			loginCheck(c, username, config.LoginsMap)
 

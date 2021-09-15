@@ -190,7 +190,7 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 		return Error.E(op, err, errCantOpenFileForReading, 0, "")
 	}
 
-	reqctx, reqcancell := context.WithTimeout(ctx, 3*time.Hour)
+	reqctx, reqcancell := context.WithTimeout(ctx, 8*time.Hour)
 	defer reqcancell() // will release resources of context if request completes before timeout
 	// creates http.Request
 	req, err := http.NewRequestWithContext(reqctx, "POST", where.ToURL, nil)
@@ -202,9 +202,9 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	// ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	// req = req.WithContext(ctx)
 
-	req.Header.Add("Expect", "100-continue")   // Client will not send body at once, it will wait for server response status "100-continue"
-	req.Header.Add("Connection", "keep-alive") // We have at least two roundprtips for authorization
-	// no connection with 'file already closed' req.Header.Add("Accept-Encoding", "deflate, compress, gzip;q=0, identity") //
+	req.Header.Add("Expect", "100-continue")   // client will not send body at once, it will wait for server response status "100-continue"
+	req.Header.Add("Connection", "keep-alive") // as we have at least two roundtrips for authorization
+
 	req.Header.Add("sha1", fmt.Sprintf("%x", bsha1))
 
 	query := req.URL.Query()

@@ -17,6 +17,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const meg = 1000000
+
 type smallinf struct {
 	Name     string
 	Size     int64
@@ -107,6 +109,9 @@ func GetFileList(c *gin.Context) {
 func findDateInLog(r io.ReaderAt, date time.Time, offset1, filesize int64) (retoffset int64, err error) {
 
 	retoffset = 0
+	if filesize-meg > 0 {
+		retoffset = filesize - meg
+	}
 	return
 }
 
@@ -130,7 +135,6 @@ func GetLogContent(c *gin.Context) {
 
 	}
 
-	const meg = 1000000
 	b := make([]byte, meg)
 	sectreader := io.NewSectionReader(ConfigThisService.Logfile, offset, meg)
 	n, err := sectreader.Read(b)

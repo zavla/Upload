@@ -48,6 +48,7 @@ func (r JournalRecord) ver2() journalrecordver2 {
 // It returns last correct log record and an error (either reading error or logical error).
 // It checks correctness of the log(journal) and may return a logical error.
 // Every format version of a journal file uses its own such function.
+// May return errors: nil, errPartialFileReadingError, errPartialFileVersionTagReadError, errPartialFileCorrupted
 func ReadCurrentStateFromJournalVer2(ver uint32, wp io.Reader) (retState FileState, correctrecordoffset int64, errInLog error) {
 	const op = "fsdriver.ReadCurrentStateFromJournalVer2()"
 	var startstruct startstructver2
