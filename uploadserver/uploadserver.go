@@ -587,6 +587,9 @@ func ServeAnUpload(c *gin.Context) {
 						log.Println(logline(c, fmt.Sprintf("event 'onSuccess' failed: %s", err)))
 					}
 
+				} else {
+					log.Println(logline(c, fmt.Sprintf("SHA1 BAD, expected SHA1 %x, error: %s", whatIsInFile.Sha1, err)))
+
 				}
 
 			}

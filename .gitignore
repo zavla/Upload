@@ -8,6 +8,7 @@ test/testfile.rar.partialinfo
 uploader/debug
 uploader/uploader.exe
 testdata/
+build/
 cmd/sendfile.rar.partialinfo
 upload.code-workspace
 uploader/testbackups/fop1_2019-09-01T13-30-00-660-differ.dif
