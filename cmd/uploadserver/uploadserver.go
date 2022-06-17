@@ -1,6 +1,6 @@
 // For Windows you may run upload service as a Windows service.
 // To create a Windows service run:
-// New-Service -Name upload -BinaryPathName f:\Zavla_VB\GO\src\upload\cmd\uploadserver\uploadserver.exe  -Description "holds your backups" -StartupType Manual -asService
+// New-Service -Name uploadserver -BinaryPathName YOURPATH/uploadserver.exe  -Description "receives databases backups" -StartupType Automatic -asService
 
 package main
 
@@ -57,8 +57,8 @@ func main() {
 	flag.BoolVar(&asService, "asService", false, "start as a Windows service.")
 	adduser := flag.String("adduser", "", "will add a login and save a password to logins.json file in -config dir.")
 	paramAllowAnonymous := false //flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
-	paramVersion := flag.Bool("version", false, "print `version`")
-	paramUsepprof := flag.Bool("debug", false, "debug, make available /debug/pprof/* URLs in service for profile")
+	paramVersion := flag.Bool("version", false, "print `version`.")
+	paramUsepprof := flag.Bool("debug", false, "debug, make available /debug/pprof/* URLs in service for profiling.")
 
 	flag.Parse()
 	flag.CommandLine.SetOutput(os.Stdout)
@@ -100,7 +100,6 @@ func main() {
 	// here we have a working log file
 	if configdir == "" {
 		flag.Usage()
-		flag.PrintDefaults()
 		log.Fatalf("-configdir is required.\r\n")
 		return
 	}
@@ -129,7 +128,6 @@ func main() {
 	// check required params
 	if *paramStorageroot == "" {
 		flag.Usage()
-		flag.PrintDefaults()
 		return
 	}
 	storageroot, err := filepath.Abs(*paramStorageroot)
@@ -506,12 +504,15 @@ func runHTTPserver(wa *sync.WaitGroup, handler http.Handler, config *uploadserve
 
 }
 func usage() {
-	fmt.Println(`Copyright zakhar.malinovskiy@gmail.com, `, gitCommit)
-	fmt.Printf(`Usage: 
-uploadserver -root dir [-log file] -config dir -listenOn ip:port [-listenOn2 ip:port] [-debug] [-asService]
+	w := flag.CommandLine.Output()
+	fmt.Fprintf(w, `uploadserver.exe is a https server that receives databases backups.
+	%v
+
+Example usage:
+uploadserver.exe -root dir -config dir -listenOn ip:port [-listenOn2 ip:port] [-log file] [-debug] [-asService]
 or
-uploadserver -adduser name -config dir
+uploadserver.exe -adduser name -config dir
+	`, gitCommit)
 
-`)
-
+	flag.PrintDefaults()
 }
