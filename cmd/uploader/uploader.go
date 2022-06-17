@@ -61,12 +61,14 @@ func main() {
 	paramSkipMarkAsUploaded := flag.Bool("skipmarkAsUploaded", false, "Skips marking of a file as uploaded.")
 
 	flag.Parse()
+	flag.Usage = Usage
+
 	if *paramVersion {
 		fmt.Printf("version: %s\r\n", gitCommit)
 		return
 	}
 	if len(os.Args[1:]) == 0 {
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 		return
 	}
@@ -265,6 +267,20 @@ func main() {
 
 		//log.Println("Normal exit.")
 	}
+}
+
+func Usage() {
+	w := flag.CommandLine.Output()
+	fmt.Fprintf(w, `uploader.exe is a client side tool for sending files to an uploadserver.
+	%v
+	
+Example usage: 
+.\uploader.exe -service https://192.168.2.4:64000/upload -username bases116 -dir ./testdata/testbackups2 -passwordfile ./logins.json -cacert ./rootCA-24.pem
+	
+Parameters:
+`, gitCommit)
+
+	flag.PrintDefaults()
 }
 
 // runWorkers starts payload goroutines.

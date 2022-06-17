@@ -91,5 +91,10 @@
             "trace": "log"
 
         },
+        {
+            "name": "ps1",
+            "type": "PowerShell",
+            
+        }
     ]
 }
