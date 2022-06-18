@@ -31,12 +31,15 @@
             "mode": "auto",
             "program": "${fileDirname}",
             "env": {} ,
+
+            //.\uploader.exe -service https://127.0.0.1:64000/upload -username bases116 -dir ./testdata/testbackups2 -passwordfile ./logins.json -cacert .\rootCA-24.pem -log ./testlog.txt
              "args": [
-                "-file","${workspaceFolder}/cmd/uploader/testdata/testbackups/sendfile.rar",
-                "-username","testuserlinux",
-                "-passwordfile","./testdata/testlogin.json",
-                "-service", "https://192.168.3.53:64000/upload",
-                "-cacert","./mkcertCA.pem"
+                "-file","./testdata/testbackups/sendfile.rar",
+                "-username","bases116",
+                "-passwordfile","./testdata/logins.json",
+                "-service", "https://127.0.0.1:64000/upload",
+                "-cacert","./rootCA-24.pem",
+                "-log","./testdata/testlog.txt"
              ]
         },
         {

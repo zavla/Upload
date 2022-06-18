@@ -14,7 +14,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
+
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -177,6 +179,8 @@ func SendAFile(ctx context.Context, where *ConnectConfig, fullfilename string, j
 	}
 	// closes file on exit
 	defer func() { _ = f.Close() }()
+
+	//
 
 	// reads file size
 	stat, err := f.Stat()

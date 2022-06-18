@@ -19,12 +19,13 @@ import (
 	"flag"
 
 	"context"
-	"log"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	log "github.com/sirupsen/logrus"
 
 	"sync"
 
@@ -63,6 +64,8 @@ func main() {
 	flag.Parse()
 	flag.Usage = Usage
 
+	log.SetFormatter(&log.TextFormatter{DisableColors: true, DisableQuote: false})
+
 	if *paramVersion {
 		fmt.Printf("version: %s\r\n", gitCommit)
 		return
@@ -78,14 +81,14 @@ func main() {
 
 	// check required parameters: either 'file' or 'dir'
 	if *paramFile == "" && *paramDirtomonitor == "" && !*savepassword && !*forHttps {
-		log.Printf("-file or -dir must be specified.\r\n")
+		log.Error("-file or -dir must be specified.\r\n")
 		os.Exit(1)
 		return
 	}
 
 	// user asks to save a password - then check password file name
 	if *savepassword && *paramPasswordfile == "" {
-		log.Printf("-passwordfile is not specified.\r\n")
+		log.Error("-passwordfile is not specified.\r\n")
 		os.Exit(1)
 		return
 	}
@@ -95,7 +98,8 @@ func main() {
 	inputFilenames := []*string{paramLogname, paramFile, paramDirtomonitor, paramPasswordfile, paramCAcert}
 
 	if err := AbsInput(inputFilenames, &logfile, &file, &dirtomonitor, &passwordfile, &cacert); err != nil {
-		log.Printf("A file name is incorrect after Abs(), %w\r\n", err)
+		log.WithField("error", err).Error("A file name is incorrect after Abs()")
+		os.Exit(1)
 		return
 	}
 
@@ -104,12 +108,12 @@ func main() {
 		// on panic we will write to log file
 		if err := recover(); err != nil {
 
-			log.Printf("PANIC: uploader has paniced:\r\n%s\r\n", err)
+			log.WithField("error", err).Error("PANIC: uploader has paniced:\r\n")
 			b := make([]byte, 2500) // enough buffer for stack trace text
 			n := runtime.Stack(b, true)
 			b = b[:n]
 			// output stack trace to a log
-			log.Printf("%d bytes of stack trace.\r\n%s\r\n", n, string(b))
+			log.WithField("stacktrace", string(b)).Errorf("%d bytes of stack trace.\r\n", n)
 		}
 	}()
 
@@ -121,9 +125,9 @@ func main() {
 
 		var err error
 
-		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
+		flog, err = os.OpenFile(logfile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0660)
 		if err != nil {
-			log.Printf("%s\r\n", Error.E(op, err, errCantOpenFileForReading, 0, logfile))
+			log.WithField("file", logfile).WithField("error", Error.E(op, err, errCantOpenFileForReading, 0, logfile)).Error("Can't use log file.")
 			os.Exit(1)
 			return
 		}
@@ -141,7 +145,7 @@ func main() {
 		// open a file or db with logins
 		err := loginsSt.OpenDB(passwordfile)
 		if err != nil {
-			log.Printf("%s\r\n", err)
+			log.WithField("file", passwordfile).WithField("error", err).Error("OpenDB(passwordfile) failed.")
 			os.Exit(1)
 			return
 		}
@@ -154,7 +158,7 @@ func main() {
 
 		loginFromFile, _, err := loginsSt.Find(where.Username, false)
 		if err != nil {
-			log.Printf("Login '%s' is not found in logins file %s\r\n", where.Username, passwordfile)
+			log.WithField("file", passwordfile).WithField("username", where.Username).Errorf("Username '%s' is not found in logins file.\r\n", where.Username)
 			os.Exit(1)
 			return
 		}
@@ -168,7 +172,7 @@ func main() {
 		// decrypts hash bytes by using a Windows DPAPI for current windows user
 		decryptedPasswordHash, err := decryptByOs(passwordhashBytes)
 		if err != nil {
-			log.Printf("Password decryption from DPAPI failed: %s\r\n", err)
+			log.WithField("error", err).WithField("username", where.Username).Error("Password decryption from file with DPAPI failed.\r\n")
 			os.Exit(1)
 			return
 		}
@@ -181,8 +185,8 @@ func main() {
 	serviceUrl, err := url.ParseRequestURI(where.ToURL)
 
 	if err != nil {
-		// is needed to test an error in where.ToURL early. next use of Scheme is a worker()
-		log.Printf("A 'service' parameter is bad: %s\r\n", err)
+		// Tests a common mistake in where.ToURL early.
+		log.WithField("error", err).Error("A 'service' parameter is bad.\r\n")
 		os.Exit(1)
 		return
 	}
@@ -195,8 +199,8 @@ func main() {
 			where.ToURL += "/"
 		}
 		if !strings.HasSuffix(where.ToURL, "upload/") {
-			log.Printf("You must add /upload/ to the end of the URL in the -service parameter.\r\n")
-			log.Printf("Example: %v\r\n", exampleRun)
+			log.Errorf(`You must add /upload/ to the end of the URL in the -service parameter.
+Example: %v`, exampleRun)
 			os.Exit(1)
 			return
 		}
@@ -204,7 +208,7 @@ func main() {
 
 		requireCAcert = true
 		if *paramCAcert == "" {
-			log.Printf("You must use 'cacert' parameter and specify a file with CA certificate in PEM format.\r\nYour service is %s\r\n", serviceUrl.Scheme)
+			log.Errorf("You must use 'cacert' parameter and specify a file with CA certificate in PEM format.\r\nYour service is %s\r\n", serviceUrl.Scheme)
 			os.Exit(1)
 			return
 		}
@@ -214,7 +218,7 @@ func main() {
 	certpool := x509.NewCertPool()
 	err = loadPemFileIntoCertPool(certpool, cacert)
 	if err != nil && requireCAcert {
-		log.Printf("A file with CA certificate must exist %s: %s\r\n", cacert, err)
+		log.WithField("file", cacert).WithField("error", err).Error("A file with CA certificate must exist.\r\n")
 		os.Exit(1)
 		return
 	}
@@ -276,7 +280,8 @@ func Usage() {
 	
 Example usage: 
 .\uploader.exe -service https://192.168.2.4:64000/upload -username bases116 -dir ./testdata/testbackups2 -passwordfile ./logins.json -cacert ./rootCA-24.pem
-	
+or
+.\uploader.exe -savepassword -passwordfile .\logins.json -username bases116 -forhttps	
 Parameters:
 `, gitCommit)
 
@@ -314,14 +319,14 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 	for name := range ch {
 		select {
 		case <-oneForAllCtx.Done():
-			log.Printf("The goroutine has received a Cancel\r\n")
+			log.Info("The goroutine has received a Cancel\r\n")
 			return
 		default:
 		}
 		err := prepareAndSendAFile(oneForAllCtx, name, &where)
 		if errError, ok := err.(*Error.Error); ok && errError.Code == uploadclient.ErrAuthorizationFailed {
 			callmeToCancel() // cancels the whole context and other goroutines
-			log.Printf("cancelling the whole request because the service responded 'Authorization failed'\r\n")
+			log.Info("cancelling the whole work because the service responded 'Authorization failed'\r\n")
 
 			return
 		}
@@ -334,6 +339,17 @@ func worker(oneForAllCtx context.Context, callmeToCancel context.CancelFunc, wg 
 // At the end it calls markFileAsUploaded().
 func prepareAndSendAFile(ctx context.Context, filename string, config *uploadclient.ConnectConfig) error {
 	const op = "uploader.prepareAndSendAFile()"
+	defer func() {
+
+		if log.StandardLogger().Out == os.Stdout {
+			return
+		}
+		if f, ok := log.StandardLogger().Out.(*os.File); ok {
+			//flush log file to a disk
+			f.Sync()
+		}
+	}()
+
 	// uses cookies to hold sessionId
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List}) // never error
 
@@ -344,7 +360,7 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	//compute SHA1 of a file
 	bsha1, err := fsdriver.GetFileSha1(storagepath, name)
 	if err != nil {
-		log.Printf("%s\r\n", Error.E(op, err, errCantOpenFileForReading, 0, ""))
+		log.WithField("file", name).WithField("error", Error.E(op, err, errCantOpenFileForReading, 0, "")).Error("Can't compute SHA1 of a file.")
 		return err
 	}
 
@@ -357,19 +373,19 @@ func prepareAndSendAFile(ctx context.Context, filename string, config *uploadcli
 	}
 
 	if err == nil {
-		log.Printf("Upload OK: %s\r\n", fullfilename)
+		log.WithField("file", fullfilename).Info("Upload OK.\r\n")
 
 		if !config.DontUseFileAttribute {
 			if err := markFileAsUploaded(fullfilename); err != nil {
 				// a non critical error
-				log.Printf("%s\r\n", Error.E(op, err, errMarkFileFailed, 0, ""))
+				log.WithField("file", name).WithField("error", Error.E(op, err, errMarkFileFailed, 0, "")).Error("Can't change file attribute A.")
 			}
 		}
 		// SUCCESS
 		return nil
 	}
 
-	log.Printf("Error sending %s : %s\r\n", fullfilename, err)
+	log.WithField("file", name).WithField("error", err).Error("Sending failed")
 	return err // every error is returned to caller, including authorization error.
 }
 
@@ -381,6 +397,12 @@ func getFilenames(dir string, chNames chan<- string) {
 	defer close(chNames)
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if path == dir {
+				//a user specified wrong dir
+				return err
+			}
+			// if there were error at reading other directories - log and ignore.
+			log.WithFields(log.Fields{"file": path, "error": err}).Error("Can't read file.")
 			return filepath.SkipDir
 		}
 		if info.IsDir() {
@@ -402,8 +424,7 @@ func getFilenames(dir string, chNames chan<- string) {
 		return nil // next file please
 	})
 	if err != nil {
-		close(chNames)
-		log.Printf("%s\r\n", Error.E(op, err, errReadingDirectory, 0, ""))
+		log.WithField("file", dir).WithField("error", Error.E(op, err, errReadingDirectory, 0, "")).Error("Can't read directory.")
 	}
 
 	return
