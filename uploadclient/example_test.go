@@ -3,6 +3,7 @@ package uploadclient_test
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/x509"
 	"io"
 	"net/http/cookiejar"
 	"os"
@@ -16,14 +17,17 @@ func ExampleSendAFile() {
 	// a jar to hold our cookies
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 
+	certpool := x509.NewCertPool()
+	uploadclient.LoadPemFileIntoCertPool(certpool, "../cmd/uploader/rootCA-24.pem")
+
 	// specify where to connect
 	config := uploadclient.ConnectConfig{
 		ToURL:    "https://127.0.0.1:64000/upload/testuser",
 		Password: "testuser",
 		//PasswordHash: string, // you better to use a hash of a password
 		Username:           "testuser",
-		InsecureSkipVerify: true, // skips certificates chain test, don't use 'true' in production, of course use a CAPool!
-		//CApool: *x509.CertPool, // a root CA public certificate that signed a service's certificate
+		InsecureSkipVerify: true,     // skips certificates chain test, don't use 'true' in production, of course use a CAPool!
+		CApool:             certpool, // a root CA public certificate that signed a service's certificate
 
 	}
 

@@ -53,8 +53,8 @@ func main() {
 	paramStorageroot := flag.String("root", "", "storage root `path` for files.")
 	flag.StringVar(&bindToAddress, "listenOn", "127.0.0.1:64000", "listen on specified `address:port`.")
 	flag.StringVar(&bindToAddress2, "listenOn2", "", "listen on specified `address:port`.")
-	paramConfigdir := flag.String("config", "", "`directory` with logins.json file (required).")
-	flag.BoolVar(&asService, "asService", false, "start as a Windows service.")
+	paramConfigdir := flag.String("config", "", "`directory` with logins.json and certificates PEM files for -listenOn IP (required).")
+	flag.BoolVar(&asService, "asService", false, "use it in ImagePath of a Windows service when you launch uploadserver as a service.")
 	adduser := flag.String("adduser", "", "will add a login and save a password to logins.json file in -config dir.")
 	paramAllowAnonymous := false //flag.Bool("allowAnonymous", false, "`true/false` to allow anonymous uploads.")
 	paramVersion := flag.Bool("version", false, "print `version`.")
@@ -512,7 +512,8 @@ Example usage:
 uploadserver.exe -root dir -config dir -listenOn ip:port [-listenOn2 ip:port] [-log file] [-debug] [-asService]
 or
 uploadserver.exe -adduser name -config dir
-	`, gitCommit)
+
+`, gitCommit)
 
 	flag.PrintDefaults()
 }

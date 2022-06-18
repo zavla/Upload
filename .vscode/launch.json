@@ -81,7 +81,7 @@
             "type": "go",
             "request": "attach",
             "mode": "local",
-            "processId": 4384
+            "processId": 1600
         },
         {
             "name": "toremote",

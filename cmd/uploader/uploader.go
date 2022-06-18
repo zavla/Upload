@@ -216,7 +216,7 @@ Example: %v`, exampleRun)
 
 	// load CA certificate that signed the service's certificate.
 	certpool := x509.NewCertPool()
-	err = loadPemFileIntoCertPool(certpool, cacert)
+	err = uploadclient.LoadPemFileIntoCertPool(certpool, cacert)
 	if err != nil && requireCAcert {
 		log.WithField("file", cacert).WithField("error", err).Error("A file with CA certificate must exist.\r\n")
 		os.Exit(1)

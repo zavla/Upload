@@ -1,1 +1,0 @@
-.\uploader.exe -username testuser -passwordfile .\testdata\testlogin.json -savepassword -forhttps

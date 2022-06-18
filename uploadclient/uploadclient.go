@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"io/ioutil"
 	"net"
 
 	"encoding/hex"
@@ -532,4 +533,27 @@ func tomsg(b []byte) string {
 		l = 2000
 	}
 	return string(b[:l])
+}
+
+func LoadPemFileIntoCertPool(certpool *x509.CertPool, filename string) error {
+	const op = "LoadPemFileIntoCertPool"
+	if certpool == nil {
+		return Error.E(op, nil, 0, Error.ErrKindInfoForUsers, "certpool is nil")
+	}
+
+	_, errCertPub := os.Stat(filename)
+
+	if os.IsNotExist(errCertPub) {
+		return errCertPub
+	}
+
+	pemCerts, err := ioutil.ReadFile(filename)
+	if err == nil {
+		ok := certpool.AppendCertsFromPEM(pemCerts)
+		if ok {
+			return nil
+		}
+	}
+	return Error.E(op, err, 0, Error.ErrKindInfoForUsers, "failed to add a certificate to the pool of certificates")
+
 }
